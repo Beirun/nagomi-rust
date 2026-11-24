@@ -6,17 +6,11 @@ use std::{
 
 use anyhow::Result;
 
-use crate::butterflies;
 use crate::commands;
 use crate::control;
-use crate::duckweed;
-use crate::fish;
 use crate::gpu;
-use crate::lotus;
 use crate::sim;
 use crate::state;
-use crate::tiny;
-use crate::weather;
 use calloop::EventLoop;
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
