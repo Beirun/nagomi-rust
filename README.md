@@ -4,6 +4,14 @@ A native Rust port of [nagomi](https://github.com/msk1039/nagomi), the procedura
 
 The scene is laid out on the original 480x270 coordinate grid but rendered at the display's native resolution, so shapes come out smooth instead of pixelated. Use `nagomi scale 1-4` to trade quality for GPU/bandwidth: 1 is the original 480x270 pixel-art look, 4 is native 1080p and the default. The setting persists across restarts.
 
+## Screenshots
+
+| Sunny | Moonlight | Rain |
+| --- | --- | --- |
+| ![Sunny pond](docs/screenshots/sunny.png) | ![Moonlit pond](docs/screenshots/moonlight.png) | ![Rainy pond](docs/screenshots/rain.png) |
+
+All three are rendered at scale 4 (native 1920x1080).
+
 ## Requirements
 
 - Linux with Wayland and a layer-shell compositor. Developed on Hyprland.
