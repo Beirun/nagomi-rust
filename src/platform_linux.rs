@@ -378,6 +378,31 @@ pub fn run() -> Result<()> {
                 for _ in 0..600 {
                     app.scene.school.update(sim::FIXED_STEP, 0.0);
                 }
+                if let Ok(dir) = std::env::var("NAGOMI_VIDEO_DIR") {
+                    let frames: usize = std::env::var("NAGOMI_VIDEO_FRAMES")
+                        .ok()
+                        .and_then(|value| value.parse().ok())
+                        .unwrap_or(300);
+                    for frame in 0..frames {
+                        app.scene.tick(1.0 / 30.0);
+                        let time = app.scene.time();
+                        app.scene.build_frame(time);
+                        let (ripple_data, ripple_count) = app.scene.ripple_uniforms();
+                        let (fish_frame, surface_frame) = app.scene.frames();
+                        let weather = *app.scene.weather.current();
+                        let path = format!("{dir}/frame{frame:05}.ppm");
+                        app.renderer.dump_pond(
+                            &path,
+                            time,
+                            &ripple_data,
+                            ripple_count,
+                            fish_frame,
+                            surface_frame,
+                            &weather,
+                        )?;
+                    }
+                    break;
+                }
                 let (ripple_data, ripple_count) = app.scene.ripple_uniforms();
                 let time = app.started.elapsed().as_secs_f32();
                 app.scene.build_frame(time);

@@ -68,6 +68,24 @@ impl Scene {
         }
     }
 
+    /// Advance a fixed amount of simulation without wall-clock pacing.
+    pub fn tick(&mut self, seconds: f32) {
+        self.weather.update(seconds);
+        self.school
+            .ripples
+            .set_rain_intensity(self.weather.current().rain.clamp(0.0, 1.0));
+        let steps = (seconds / FIXED_STEP).round() as usize;
+        for _ in 0..steps {
+            self.school.update(FIXED_STEP, self.sim_time);
+            self.butterflies.update(FIXED_STEP, self.sim_time);
+            self.sim_time += FIXED_STEP;
+        }
+    }
+
+    pub fn time(&self) -> f32 {
+        self.sim_time
+    }
+
     pub fn build_frame(&mut self, time: f32) {
         self.rebuild_fish();
         self.lotus

@@ -6,9 +6,9 @@ The scene is laid out on the original 480x270 coordinate grid but rendered at th
 
 ## Demo
 
-<video src="https://raw.githubusercontent.com/Beirun/nagomi-rust/main/docs/demo.mp4" controls loop muted></video>
+[![Animated preview of the koi pond](docs/demo.webp)](docs/demo.mp4)
 
-Twelve seconds of the pond at the default settings.
+Animated preview at the default settings. Click it for the twelve second 720p clip, `docs/demo.mp4`.
 
 ## What you need
 
