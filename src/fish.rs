@@ -3,7 +3,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::sim::{
-    from_angle, FishConfig, Koi, Vec2, SPINE_NODES,
+    from_angle, vec2, FishConfig, Koi, Vec2, SPINE_NODES,
 };
 
 #[repr(C)]
@@ -26,6 +26,38 @@ impl Vertex {
             wgpu::VertexAttribute {
                 offset: 8,
                 shader_location: 1,
+                format: wgpu::VertexFormat::Float32x3,
+            },
+        ],
+    };
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct SpriteVertex {
+    pub position: [f32; 2],
+    pub uv: [f32; 2],
+    pub tint: [f32; 3],
+}
+
+impl SpriteVertex {
+    pub const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<SpriteVertex>() as wgpu::BufferAddress,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[
+            wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32x2,
+            },
+            wgpu::VertexAttribute {
+                offset: 8,
+                shader_location: 1,
+                format: wgpu::VertexFormat::Float32x2,
+            },
+            wgpu::VertexAttribute {
+                offset: 16,
+                shader_location: 2,
                 format: wgpu::VertexFormat::Float32x3,
             },
         ],
@@ -261,6 +293,57 @@ pub fn depth_appearance(source: &Appearance, config: &FishConfig, depth: f32) ->
         marking: apply_depth_color(source.marking, config, depth),
         fin: apply_depth_color(source.fin, config, depth),
         eye: apply_depth_color(source.eye, config, depth),
+    }
+}
+
+/// Depth tint applied to a sprite, matching the koi depth shading.
+pub fn depth_tint(config: &FishConfig, depth: f32) -> [f32; 3] {
+    let visual = visual_depth(config, depth);
+    let brightness = 1.0 + (config.deep_brightness - 1.0) * visual;
+    let tint = config.deep_water_tint;
+    [
+        brightness * (1.0 + (tint[0] - 1.0) * visual),
+        brightness * (1.0 + (tint[1] - 1.0) * visual),
+        brightness * (1.0 + (tint[2] - 1.0) * visual),
+    ]
+}
+
+/// Rotated quad for one sprite. Art is assumed to face right; leftward motion
+/// flips it vertically so creatures stay upright.
+#[allow(clippy::too_many_arguments)]
+pub fn push_sprite(
+    out: &mut Vec<SpriteVertex>,
+    center: Vec2,
+    forward: Vec2,
+    width: f32,
+    height: f32,
+    tint: [f32; 3],
+) {
+    let side = forward.perpendicular();
+    let flip = forward.x < 0.0;
+    let half_width = width * 0.5;
+    let half_height = height * 0.5;
+    for (cx, cy) in [
+        (-1.0f32, -1.0f32),
+        (1.0, -1.0),
+        (1.0, 1.0),
+        (-1.0, -1.0),
+        (1.0, 1.0),
+        (-1.0, 1.0),
+    ] {
+        let point = center
+            .add(forward.mul(cx * half_width))
+            .add(side.mul(cy * half_height));
+        let u = cx * 0.5 + 0.5;
+        let mut v = cy * 0.5 + 0.5;
+        if flip {
+            v = 1.0 - v;
+        }
+        out.push(SpriteVertex {
+            position: [point.x, point.y],
+            uv: [u, v],
+            tint,
+        });
     }
 }
 
@@ -599,6 +682,271 @@ pub fn draw_koi(
                 depth: depth_pair,
                 local: corner,
             });
+        }
+    }
+}
+
+// ---- built-in creature skin -------------------------------------------------
+// Original pond critters drawn from the same polygons as the koi. They keep
+// the simulation's motion and depth shading.
+
+const CREATURE_PALETTES: [[[u32; 3]; 3]; 6] = [
+    // axolotl: body, belly, gills
+    [[0xf4, 0xa3, 0xc8], [0xff, 0xd1, 0xe6], [0xe8, 0x62, 0x9a]],
+    // turtle: shell, shell shade, skin
+    [[0x4f, 0x9d, 0x6b], [0x3c, 0x7a, 0x53], [0x7f, 0xbf, 0x8e]],
+    // frog: body, light, dark
+    [[0x79, 0xc2, 0x5c], [0xa8, 0xdd, 0x7f], [0x4e, 0x8a, 0x3c]],
+    // duck: body, wing, beak
+    [[0xf2, 0xf0, 0xe6], [0xd9, 0xd4, 0xc4], [0xe8, 0xa3, 0x3d]],
+    // puffer: body, belly, spikes
+    [[0xf3, 0xc4, 0x53], [0xff, 0xe0, 0x8a], [0xd9, 0x9a, 0x2b]],
+    // newt: body, belly, spots
+    [[0x5a, 0xa9, 0xc9], [0xa6, 0xd9, 0xea], [0x3f, 0x7f, 0x99]],
+];
+
+fn palette_rgb(value: [u32; 3]) -> [f32; 3] {
+    [
+        value[0] as f32 / 255.0,
+        value[1] as f32 / 255.0,
+        value[2] as f32 / 255.0,
+    ]
+}
+
+pub fn draw_creature(config: &FishConfig, fish: &Koi, family: usize, draw: &mut KoiDraw) {
+    let depth = visual_depth(config, fish.depth);
+    let tint = |value: [u32; 3]| apply_depth_color(palette_rgb(value), config, depth);
+    let palette = CREATURE_PALETTES[family % CREATURE_PALETTES.len()];
+    let body = tint(palette[0]);
+    let second = tint(palette[1]);
+    let accent = tint(palette[2]);
+    let eye = tint([0x21, 0x23, 0x25]);
+
+    let forward = from_angle(fish.heading);
+    let side = forward.perpendicular();
+    let head = fish.render_spine[0];
+    let tail = fish.render_spine[SPINE_NODES - 1];
+    let center = head.add(tail).mul(0.5);
+    let length = fish.body_length;
+    let width = fish.body_width;
+
+    let shadow_offset = config
+        .shadow_offset
+        .add(config.shadow_depth_offset.mul(depth));
+    let shadow = config.shadow_surface_opacity
+        + (config.shadow_deep_opacity - config.shadow_surface_opacity) * depth;
+    draw.shadow.circle(
+        center.add(shadow_offset),
+        length * 0.4,
+        [shadow, shadow, shadow],
+        14,
+    );
+
+    match family % 6 {
+        0 => {
+            // Axolotl: soft body, feathery gills, long tail.
+            draw.outer.ellipse(
+                center, forward, side, length * 0.3, width * 1.05, body, fish.phase_offset, 12,
+            );
+            draw.outer.circle(
+                head.add(forward.mul(length * 0.12)),
+                width * 1.15,
+                body,
+                10,
+            );
+            for index in 0..3 {
+                let offset = (index as f32 - 1.0) * width * 0.9;
+                for direction in [-1.0f32, 1.0] {
+                    let root = head.add(side.mul(offset * direction)).add(forward.mul(width * 0.2));
+                    let tip = root
+                        .sub(forward.mul(length * 0.16))
+                        .add(side.mul(direction * width * 0.9));
+                    draw.outer.triangle(root, tip, root.add(forward.mul(width * 0.4)), accent);
+                }
+            }
+            let tail_tip = tail.add(from_angle(fish.heading).mul(-length * 0.18));
+            draw.outer.triangle(
+                tail,
+                tail_tip.add(side.mul(width * 1.1)),
+                tail_tip.sub(side.mul(width * 1.1)),
+                second,
+            );
+            for direction in [-1.0f32, 1.0] {
+                draw.outer.circle(
+                    head.add(forward.mul(length * 0.16))
+                        .add(side.mul(direction * width * 0.55)),
+                    width * 0.28,
+                    eye,
+                    6,
+                );
+            }
+        }
+        1 => {
+            // Turtle: shell with a darker plate ring, head, flippers.
+            draw.outer.ellipse(
+                center, forward, side, length * 0.3, width * 1.15, body, 0.0, 12,
+            );
+            draw.outer.ellipse(
+                center,
+                forward,
+                side,
+                length * 0.2,
+                width * 0.78,
+                second,
+                fish.phase_offset,
+                10,
+            );
+            draw.outer.circle(
+                head.add(forward.mul(length * 0.1)),
+                width * 0.85,
+                accent,
+                10,
+            );
+            for direction in [-1.0f32, 1.0] {
+                for depth_index in [0.0f32, 1.0] {
+                    let root = center
+                        .add(forward.mul(length * (0.2 - depth_index * 0.32)))
+                        .add(side.mul(direction * width * 0.6));
+                    let tip = root
+                        .add(side.mul(direction * width * 0.9))
+                        .sub(forward.mul(length * 0.12));
+                    draw.outer.triangle(root.add(forward.mul(width * 0.3)), tip, root.sub(forward.mul(width * 0.3)), accent);
+                }
+            }
+            for direction in [-1.0f32, 1.0] {
+                draw.outer.circle(
+                    head.add(forward.mul(length * 0.16))
+                        .add(side.mul(direction * width * 0.4)),
+                    width * 0.16,
+                    eye,
+                    5,
+                );
+            }
+        }
+        2 => {
+            // Frog: round body, eyes on top, folded hind legs.
+            draw.outer.circle(center, length * 0.27, body, 12);
+            for direction in [-1.0f32, 1.0] {
+                let eye_center = head
+                    .add(forward.mul(length * 0.02))
+                    .add(side.mul(direction * width * 0.75));
+                draw.outer.circle(eye_center, width * 0.55, body, 8);
+                draw.outer.circle(eye_center, width * 0.24, eye, 6);
+                let hip = center
+                    .sub(forward.mul(length * 0.22))
+                    .add(side.mul(direction * width * 0.8));
+                let knee = hip
+                    .add(side.mul(direction * width * 0.7))
+                    .sub(forward.mul(length * 0.06));
+                let foot = knee.add(forward.mul(length * 0.18));
+                draw.outer.triangle(hip, knee, foot, second);
+            }
+        }
+        3 => {
+            // Duck: oval body, round head, flat beak, folded wing.
+            draw.outer.ellipse(
+                center, forward, side, length * 0.31, width * 1.0, body, fish.phase_offset, 12,
+            );
+            let head_center = head.add(forward.mul(length * 0.08));
+            draw.outer.circle(head_center, width * 0.85, body, 10);
+            let beak_root = head_center.add(forward.mul(width * 0.7));
+            draw.outer.triangle(
+                beak_root,
+                beak_root.add(forward.mul(width * 1.1)).add(side.mul(width * 0.25)),
+                beak_root.add(forward.mul(width * 1.1)).sub(side.mul(width * 0.25)),
+                accent,
+            );
+            draw.outer.ellipse(
+                center.sub(forward.mul(length * 0.05)),
+                forward,
+                side,
+                length * 0.16,
+                width * 0.55,
+                second,
+                fish.phase_offset * 0.5,
+                10,
+            );
+            draw.outer.circle(
+                head_center.add(side.mul(width * 0.45)),
+                width * 0.16,
+                eye,
+                5,
+            );
+            draw.outer.circle(
+                head_center.sub(side.mul(width * 0.45)),
+                width * 0.16,
+                eye,
+                5,
+            );
+        }
+        4 => {
+            // Puffer: round body ringed with spikes.
+            draw.outer.circle(center, length * 0.27, body, 12);
+            draw.outer.circle(center.add(forward.mul(length * 0.04)), length * 0.16, second, 10);
+            for index in 0..10 {
+                let angle = index as f32 / 10.0 * std::f32::consts::TAU;
+                let direction = vec2(angle.cos(), angle.sin());
+                let root = center.add(direction.mul(length * 0.24));
+                draw.outer.triangle(
+                    root,
+                    center.add(direction.mul(length * 0.4)),
+                    root.add(direction.perpendicular().mul(width * 0.4)),
+                    accent,
+                );
+            }
+            let tail_tip = tail.sub(forward.mul(length * 0.1));
+            draw.outer.triangle(
+                tail,
+                tail_tip.add(side.mul(width * 0.7)),
+                tail_tip.sub(side.mul(width * 0.7)),
+                accent,
+            );
+            for direction in [-1.0f32, 1.0] {
+                draw.outer.circle(
+                    head.add(forward.mul(length * 0.1))
+                        .add(side.mul(direction * width * 0.6)),
+                    width * 0.24,
+                    eye,
+                    5,
+                );
+            }
+        }
+        _ => {
+            // Newt: sleek body, long tail, tiny legs.
+            draw.outer.ellipse(
+                center, forward, side, length * 0.34, width * 0.72, body, fish.phase_offset, 12,
+            );
+            draw.outer.circle(head.add(forward.mul(length * 0.1)), width * 0.7, body, 8);
+            let tail_tip = tail.sub(forward.mul(length * 0.15));
+            draw.outer.triangle(
+                tail,
+                tail_tip.add(side.mul(width * 0.6)),
+                tail_tip.sub(side.mul(width * 0.6)),
+                second,
+            );
+            for direction in [-1.0f32, 1.0] {
+                draw.outer.circle(
+                    center.add(forward.mul(length * 0.1))
+                        .add(side.mul(direction * width * 0.8)),
+                    width * 0.22,
+                    accent,
+                    5,
+                );
+                draw.outer.circle(
+                    center.sub(forward.mul(length * 0.2))
+                        .add(side.mul(direction * width * 0.7)),
+                    width * 0.18,
+                    accent,
+                    5,
+                );
+                draw.outer.circle(
+                    head.add(forward.mul(length * 0.16))
+                        .add(side.mul(direction * width * 0.35)),
+                    width * 0.14,
+                    eye,
+                    5,
+                );
+            }
         }
     }
 }

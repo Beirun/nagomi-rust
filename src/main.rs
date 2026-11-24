@@ -7,6 +7,7 @@ mod lotus;
 mod tiny;
 mod weather;
 mod sim;
+mod skin;
 
 use std::{
     path::PathBuf,
@@ -43,8 +44,8 @@ use wayland_client::{
     Connection, Proxy, QueueHandle,
 };
 
-use fish::KoiDraw;
-use gpu::{FishFrame, SurfaceFrame};
+use fish::{KoiDraw, SpriteVertex};
+use gpu::{FishFrame, SpriteFrame, SurfaceFrame};
 use sim::{FishConfig, School, FIXED_STEP};
 
 
@@ -66,6 +67,7 @@ struct SavedState {
     flowers: Option<usize>,
     duckweed: Option<usize>,
     butterflies: Option<usize>,
+    skin: Option<String>,
 }
 
 fn load_state() -> SavedState {
@@ -88,6 +90,8 @@ fn load_state() -> SavedState {
             saved.duckweed = value.trim().parse::<usize>().ok();
         } else if let Some(value) = line.strip_prefix("butterflies=") {
             saved.butterflies = value.trim().parse::<usize>().ok();
+        } else if let Some(value) = line.strip_prefix("skin=") {
+            saved.skin = Some(value.trim().to_string());
         }
     }
     saved
@@ -124,6 +128,10 @@ struct App {
     butterflies: butterflies::Butterflies,
     butterfly_frame: butterflies::ButterflyFrame,
     weather: weather::Weather,
+    skin_name: String,
+    creature_mode: bool,
+    koi_sprites: Vec<Vec<SpriteVertex>>,
+    leaf_sprites: Vec<Vec<SpriteVertex>>,
     config: FishConfig,
     accumulator: f32,
     sim_time: f32,
@@ -276,9 +284,35 @@ impl LayerShellHandler for App {
 }
 
 impl App {
+    fn apply_skin(&mut self, name: &str) -> String {
+        let name = name.trim();
+        if name == "off" {
+            self.renderer.set_skin(&skin::Skin::empty());
+            self.skin_name = "off".to_string();
+            self.creature_mode = false;
+        } else if name == "creatures" {
+            self.renderer.set_skin(&skin::Skin::empty());
+            self.skin_name = "creatures".to_string();
+            self.creature_mode = true;
+        } else {
+            let loaded = skin::load(name);
+            if loaded.is_empty() {
+                return format!(
+                    "nagomi: no koi1.png..koi6.png or leaf1.png/leaf2.png in {}\n",
+                    skin::skins_root().join(name).display()
+                );
+            }
+            self.renderer.set_skin(&loaded);
+            self.skin_name = name.to_string();
+            self.creature_mode = false;
+        }
+        self.save_state();
+        format!("skin {}\n", self.skin_name)
+    }
+
     fn save_state(&self) {
         let contents = format!(
-            "fish={}\nambience={}\nscale={}\nleaves={}\nflowers={}\nduckweed={}\nbutterflies={}\n",
+            "fish={}\nambience={}\nscale={}\nleaves={}\nflowers={}\nduckweed={}\nbutterflies={}\nskin={}\n",
             self.school.count,
             self.weather.name(),
             self.renderer.scale(),
@@ -286,6 +320,7 @@ impl App {
             self.lotus.visible_flowers(),
             self.duckweed.visible_patches(),
             self.butterflies.visible(),
+            self.skin_name,
         );
         let path = state_path();
         if let Some(parent) = path.parent() {
@@ -296,7 +331,22 @@ impl App {
 
     fn build_frame(&mut self, time: f32) {
         self.rebuild_fish();
-        self.lotus.update(time, &mut self.lotus_frame);
+        self.lotus
+            .update(time, &mut self.lotus_frame, self.renderer.leaf_sprite_flags());
+        for sprites in &mut self.leaf_sprites {
+            sprites.clear();
+        }
+        for leaf in &self.lotus_frame.leaf_sprites {
+            let forward = sim::from_angle(leaf.rotation);
+            fish::push_sprite(
+                &mut self.leaf_sprites[leaf.palette],
+                leaf.center,
+                forward,
+                leaf.size,
+                leaf.size,
+                [1.0, 1.0, 1.0],
+            );
+        }
         self.duckweed.update(time, &mut self.duckweed_frame);
         tiny::draw(&self.school.tiny, &mut self.tiny_frame);
         self.butterflies.draw(time, &mut self.butterfly_frame);
@@ -304,13 +354,45 @@ impl App {
 
     fn rebuild_fish(&mut self) {
         self.draw.clear();
+        for sprites in &mut self.koi_sprites {
+            sprites.clear();
+        }
         for index in 0..self.school.count {
             let mut fish = self.school.fish[index];
             let depth = fish::visual_depth(&self.config, fish.depth);
-            let appearance =
-                fish::depth_appearance(&fish::appearance_for(index), &self.config, depth);
+            let family = index % 6;
             fish::build_render_spine(&mut fish);
-            fish::draw_koi(&self.config, &fish, &appearance, &mut self.draw);
+            if self.creature_mode {
+                fish::draw_creature(&self.config, &fish, family, &mut self.draw);
+            } else if self.renderer.has_koi_sprite(family) {
+                let tint = fish::depth_tint(&self.config, fish.depth);
+                let size = fish.body_length * 1.6;
+                let forward = sim::from_angle(fish.heading);
+                fish::push_sprite(
+                    &mut self.koi_sprites[family],
+                    fish.position,
+                    forward,
+                    size,
+                    size,
+                    tint,
+                );
+                let strength = self.config.shadow_surface_opacity
+                    + (self.config.shadow_deep_opacity - self.config.shadow_surface_opacity)
+                        * depth;
+                let offset = self.config.shadow_offset.add(
+                    self.config.shadow_depth_offset.mul(fish::visual_depth(&self.config, fish.depth)),
+                );
+                self.draw.shadow.circle(
+                    fish.position.add(offset),
+                    fish.body_length * 0.42,
+                    [strength, strength, strength],
+                    12,
+                );
+            } else {
+                let appearance =
+                    fish::depth_appearance(&fish::appearance_for(index), &self.config, depth);
+                fish::draw_koi(&self.config, &fish, &appearance, &mut self.draw);
+            }
         }
     }
 
@@ -442,6 +524,15 @@ impl App {
                     Err(_) => "nagomi: butterflies needs a number\n".to_string(),
                 },
             },
+            "skin" => match words.next() {
+                None => {
+                    let available = skin::list();
+                    let mut names = vec!["off".to_string(), "creatures".to_string()];
+                    names.extend(available);
+                    format!("skin {}\navailable: {}\n", self.skin_name, names.join(", "))
+                }
+                Some(name) => self.apply_skin(name),
+            },
             "scatter" => {
                 self.school.scatter();
                 "ok\n".to_string()
@@ -549,8 +640,20 @@ fn main() -> Result<()> {
         })
         .unwrap_or(4)
         .clamp(1, 4);
-    let renderer =
+    let mut renderer =
         pollster::block_on(gpu::Renderer::new(instance, wgpu_surface, initial_scale));
+
+    let skin_name = saved
+        .skin
+        .clone()
+        .filter(|name| name != "off")
+        .unwrap_or_else(|| "off".to_string());
+    let mut creature_mode = false;
+    if skin_name == "creatures" {
+        creature_mode = true;
+    } else if skin_name != "off" {
+        renderer.set_skin(&skin::load(&skin_name));
+    }
     let config = FishConfig::default();
     let mut school = School::new(config);
     let mut weather = weather::Weather::new();
@@ -607,6 +710,10 @@ fn main() -> Result<()> {
         butterflies,
         butterfly_frame: butterflies::ButterflyFrame::new(),
         weather,
+        skin_name,
+        creature_mode,
+        koi_sprites: (0..6).map(|_| Vec::new()).collect(),
+        leaf_sprites: (0..2).map(|_| Vec::new()).collect(),
         config,
         accumulator: 0.0,
         sim_time: 0.0,
@@ -672,6 +779,10 @@ fn main() -> Result<()> {
                         butterfly_shadow: &app.butterfly_frame.shadow,
                         butterflies: &app.butterfly_frame.shapes,
                     },
+                    SpriteFrame {
+                        koi: &app.koi_sprites,
+                        leaves: &app.leaf_sprites,
+                    },
                     app.weather.current(),
                 )?;
                 break;
@@ -724,6 +835,10 @@ fn main() -> Result<()> {
                     tiny_details: &app.tiny_frame.details,
                     butterfly_shadow: &app.butterfly_frame.shadow,
                     butterflies: &app.butterfly_frame.shapes,
+                },
+                SpriteFrame {
+                    koi: &app.koi_sprites,
+                    leaves: &app.leaf_sprites,
                 },
                 app.weather.current(),
             );
