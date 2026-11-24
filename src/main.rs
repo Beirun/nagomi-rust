@@ -270,6 +270,14 @@ impl LayerShellHandler for App {
 }
 
 impl App {
+    fn build_frame(&mut self, time: f32) {
+        self.rebuild_fish();
+        self.lotus.update(time, &mut self.lotus_frame);
+        self.duckweed.update(time, &mut self.duckweed_frame);
+        tiny::draw(&self.school.tiny, &mut self.tiny_frame);
+        self.butterflies.draw(time, &mut self.butterfly_frame);
+    }
+
     fn rebuild_fish(&mut self) {
         self.draw.clear();
         for index in 0..self.school.count {
@@ -552,13 +560,9 @@ fn main() -> Result<()> {
                     app.school.update(FIXED_STEP, app.sim_time);
                     app.sim_time += FIXED_STEP;
                 }
-                app.rebuild_fish();
                 let (ripple_data, ripple_count) = app.ripple_uniforms();
                 let time = app.started.elapsed().as_secs_f32();
-                app.lotus.update(time, &mut app.lotus_frame);
-                app.duckweed.update(time, &mut app.duckweed_frame);
-                tiny::draw(&app.school.tiny, &mut app.tiny_frame);
-                app.butterflies.draw(time, &mut app.butterfly_frame);
+                app.build_frame(time);
                 app.renderer.dump_pond(
                     &path,
                     time,
@@ -609,11 +613,10 @@ fn main() -> Result<()> {
         }
 
         if app.configured && last_frame.elapsed() >= FRAME_INTERVAL {
-            app.rebuild_fish();
             let (ripple_data, ripple_count) = app.ripple_uniforms();
 
             let time = app.started.elapsed().as_secs_f32();
-            app.lotus.update(time, &mut app.lotus_frame);
+            app.build_frame(time);
             app.renderer.draw(
                 time,
                 &ripple_data,
