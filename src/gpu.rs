@@ -244,6 +244,7 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface_format: wgpu::TextureFormat,
+    present_modes: Vec<wgpu::PresentMode>,
     surface_config: Option<wgpu::SurfaceConfiguration>,
     size: (u32, u32),
 
@@ -339,6 +340,7 @@ impl Renderer {
                 .unwrap_or(caps.formats[0])
         });
         log::info!("surface format {surface_format:?}");
+        let present_modes = caps.present_modes.clone();
 
         let shader = |code: String, label: &str| {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -979,6 +981,7 @@ impl Renderer {
             device,
             queue,
             surface_format,
+            present_modes,
             surface_config: None,
             size: (0, 0),
             scale,
@@ -1054,7 +1057,11 @@ impl Renderer {
             width,
             height,
             desired_maximum_frame_latency: 2,
-            present_mode: wgpu::PresentMode::Mailbox,
+            present_mode: if self.present_modes.contains(&wgpu::PresentMode::Mailbox) {
+                wgpu::PresentMode::Mailbox
+            } else {
+                wgpu::PresentMode::Fifo
+            },
         };
         self.surface.configure(&self.device, &config);
         self.surface_config = Some(config);
@@ -1773,6 +1780,18 @@ impl Renderer {
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                // The swapchain can die when the desktop session sleeps or the
+                // window moves. Reconfigure once and retry.
+                if let Some(config) = self.surface_config.clone() {
+                    self.surface.configure(&self.device, &config);
+                }
+                match self.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(frame)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+                    _ => return,
+                }
+            }
             _ => return,
         };
         let view = frame

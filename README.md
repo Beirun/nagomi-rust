@@ -14,16 +14,28 @@ All three are rendered at scale 4 (native 1920x1080).
 
 ## Requirements
 
-- Linux with Wayland and a layer-shell compositor. Developed on Hyprland.
+- Linux with Wayland and a layer-shell compositor, developed on Hyprland, or Windows 10/11 with D3D12.
 - A working Vulkan or GLES driver
 - Rust toolchain (1.85 or newer)
 
 ## Build and run
 
+On Linux:
+
 ```bash
 cargo build --release
 ./target/release/nagomi-native
 ```
+
+On Windows, cross-compiled with `cargo-xwin` (needs `clang-cl` and `lld` on the build host):
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo install cargo-xwin
+cargo xwin build --release --target x86_64-pc-windows-msvc
+```
+
+The Windows binary embeds the C runtime, so it runs on a clean install. Launch it with no arguments; it parents a borderless window under Explorer's WorkerW, which puts the pond behind the desktop icons. D3D12 is required, and machines without a suitable GPU fall back to the software WARP adapter. A logged-in desktop session is required.
 
 Run with no arguments to start the wallpaper. To have it start with the session, use a systemd user unit such as:
 
@@ -61,6 +73,7 @@ nagomi leaves 12       # lotus leaves, 0-32
 nagomi flowers 3       # lotus flowers, 0-16
 nagomi duckweed 5      # duckweed patches, 0-16
 nagomi butterflies 2   # butterflies, 0-16
+nagomi autostart on    # start with the session (Windows; Linux uses the systemd unit)
 nagomi scatter         # startle the koi
 nagomi status          # fish, ambience, scale, scene counts, pid, uptime
 ```

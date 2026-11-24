@@ -93,6 +93,12 @@ pub fn handle(
                 Err(_) => "nagomi: butterflies needs a number\n".to_string(),
             },
         },
+        "autostart" => match words.next() {
+            None => autostart(None),
+            Some("on") => autostart(Some(true)),
+            Some("off") => autostart(Some(false)),
+            Some(_) => "nagomi: autostart takes on or off\n".to_string(),
+        },
         "scatter" => {
             scene.school.scatter();
             "ok\n".to_string()
@@ -116,9 +122,59 @@ pub fn handle(
     // Persist after anything that mutates state; the reply tells whether it did.
     if !reply.starts_with("nagomi:") && !matches!(
         request.split_whitespace().next(),
-        None | Some("status" | "help" | "--help" | "-h" | "scatter")
+        None | Some("status" | "help" | "--help" | "-h" | "scatter" | "autostart")
     ) {
         SavedState::save(scene, renderer.scale());
     }
     reply
+}
+
+#[cfg(windows)]
+fn autostart(on: Option<bool>) -> String {
+    use std::process::Command;
+
+    const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    match on {
+        None => match Command::new("reg").args(["query", KEY, "/v", "nagomi"]).output() {
+            Ok(output) if output.status.success() => "autostart on\n".to_string(),
+            _ => "autostart off\n".to_string(),
+        },
+        Some(true) => {
+            let Ok(exe) = std::env::current_exe() else {
+                return "nagomi: cannot find the executable\n".to_string();
+            };
+            match Command::new("reg")
+                .args([
+                    "add",
+                    KEY,
+                    "/v",
+                    "nagomi",
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    &exe.display().to_string(),
+                    "/f",
+                ])
+                .output()
+            {
+                Ok(output) if output.status.success() => "autostart on\n".to_string(),
+                _ => "nagomi: could not write the Run key\n".to_string(),
+            }
+        }
+        Some(false) => {
+            match Command::new("reg")
+                .args(["delete", KEY, "/v", "nagomi", "/f"])
+                .output()
+            {
+                Ok(output) if output.status.success() => "autostart off\n".to_string(),
+                _ => "nagomi: autostart is already off\n".to_string(),
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn autostart(_on: Option<bool>) -> String {
+    "nagomi: on Linux autostart is the systemd unit: systemctl --user enable --now nagomi-wallpaper.service\n"
+        .to_string()
 }

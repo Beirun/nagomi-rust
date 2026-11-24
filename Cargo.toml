@@ -5,15 +5,24 @@ edition = "2021"
 
 [dependencies]
 wgpu = "30"
-smithay-client-toolkit = { version = "0.21", features = ["calloop"] }
 raw-window-handle = "0.6"
-wayland-client = { version = "0.31", features = ["system", "libwayland_1_23"] }
-calloop = "0.14"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
 
+[target.'cfg(unix)'.dependencies]
+smithay-client-toolkit = { version = "0.21", features = ["calloop"] }
+wayland-client = { version = "0.31", features = ["system", "libwayland_1_23"] }
+calloop = "0.14"
+
 [profile.release]
 opt-level = 2
+
+[target.'cfg(windows)'.dependencies]
+winit = "0.30"
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+] }
