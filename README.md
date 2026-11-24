@@ -12,32 +12,46 @@ The scene is laid out on the original 480x270 coordinate grid but rendered at th
 
 All three are rendered at scale 4 (native 1920x1080).
 
-## Requirements
+## What you need
 
-- Linux with Wayland and a layer-shell compositor, developed on Hyprland, or Windows 10/11 with D3D12.
-- A working Vulkan or GLES driver
-- Rust toolchain (1.85 or newer)
+| | Linux | Windows |
+| --- | --- | --- |
+| OS | Wayland compositor with layer shell, developed on Hyprland | Windows 10 or 11 |
+| Session | Any Wayland session | A logged-in desktop session with Explorer running |
+| GPU | Vulkan or GLES driver | D3D12, falling back to the software WARP adapter |
+| Build | Rust 1.85 or newer, pkg-config, libwayland | Rust 1.85 or newer with the MSVC toolchain |
 
-## Build and run
+## Linux setup
 
-On Linux:
+1. Install the build dependencies. On Arch:
+
+```bash
+sudo pacman -S rust pkgconf wayland vulkan-icd-loader mesa
+```
+
+On Debian or Ubuntu:
+
+```bash
+sudo apt install build-essential pkg-config libwayland-dev libvulkan-dev mesa-vulkan-drivers
+```
+
+Rust installed through `rustup` works as well as the distro package. The Vulkan loader and a GPU driver are runtime requirements, not just build ones.
+
+2. Build:
 
 ```bash
 cargo build --release
+```
+
+3. Run it once from a terminal:
+
+```bash
 ./target/release/nagomi-native
 ```
 
-On Windows, cross-compiled with `cargo-xwin` (needs `clang-cl` and `lld` on the build host):
+The pond should appear behind your windows. If the desktop stays empty, see Troubleshooting.
 
-```bash
-rustup target add x86_64-pc-windows-msvc
-cargo install cargo-xwin
-cargo xwin build --release --target x86_64-pc-windows-msvc
-```
-
-The Windows binary embeds the C runtime, so it runs on a clean install. Launch it with no arguments; it parents a borderless window under Explorer's WorkerW, which puts the pond behind the desktop icons. D3D12 is required, and machines without a suitable GPU fall back to the software WARP adapter. A logged-in desktop session is required.
-
-Run with no arguments to start the wallpaper. To have it start with the session, use a systemd user unit such as:
+4. Start it with the session. Save this as `~/.config/systemd/user/nagomi-wallpaper.service`, adjusting the path:
 
 ```ini
 [Unit]
@@ -49,7 +63,8 @@ ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=simple
-ExecStart=%h/Projects/nagomi-rust/target/release/nagomi-native
+ExecStart=%h/path/to/nagomi-rust/target/release/nagomi-native
+Slice=session.slice
 Restart=on-failure
 RestartSec=2
 
@@ -57,11 +72,54 @@ RestartSec=2
 WantedBy=graphical-session.target
 ```
 
-Enable it with `systemctl --user enable --now nagomi-wallpaper.service`.
+Then:
 
-## Controls
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now nagomi-wallpaper.service
+```
 
-Clicking an empty desktop calls the koi to the cursor. Everything else goes through the command line, which talks to the running wallpaper over a socket in `$XDG_RUNTIME_DIR`:
+Logs go to `journalctl --user -u nagomi-wallpaper`.
+
+5. Put the command on your PATH, so the CLI works from any terminal:
+
+```bash
+ln -s "$PWD/target/release/nagomi-native" ~/.local/bin/nagomi
+```
+
+## Windows setup
+
+The binary is a single executable with the C runtime linked statically, so it runs on a clean Windows install.
+
+Build on Windows with the MSVC toolchain (Rust from rustup and the Visual Studio Build Tools with the C++ workload):
+
+```powershell
+cargo build --release
+```
+
+Or cross-compile from Linux with `cargo-xwin`, which needs `clang` and `lld` on the build host:
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo install cargo-xwin
+cargo xwin build --release --target x86_64-pc-windows-msvc
+```
+
+The build uses a static CRT through `.cargo/config.toml`, which is why no VC++ redistributable is required. If `lld-link` fails to start with a missing `libLLVM`, install the `lld` package, or point the linker at rustc's bundled copy with a small wrapper that runs `rust-lld -flavor link`.
+
+Run `nagomi-native.exe` with no arguments. It creates a borderless window sized to the primary monitor and reparents it under the WorkerW window Explorer uses for the desktop, which puts the pond behind the icons. This is the same undocumented trick Lively Wallpaper and similar tools use, and an Explorer restart can drop the connection, in which case launch the app again.
+
+Start it with the session:
+
+```powershell
+nagomi-native.exe autostart on
+```
+
+That writes a per-user entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Use `autostart off` to remove it. To run the CLI conveniently, copy or rename the executable to `nagomi.exe` in a folder on your PATH.
+
+## The nagomi command
+
+The command talks to the running wallpaper, over `$XDG_RUNTIME_DIR/nagomi-native.sock` on Linux and loopback TCP port 7391 on Windows.
 
 ```
 nagomi fish            # show the koi count
@@ -78,11 +136,44 @@ nagomi scatter         # startle the koi
 nagomi status          # fish, ambience, scale, scene counts, pid, uptime
 ```
 
-Fish count and ambience are saved to `$XDG_STATE_HOME/nagomi/state` and restored on the next start. The `nagomi` name is just a convenience symlink to the binary.
+Changes take effect immediately and are remembered across restarts. State lives in `$XDG_STATE_HOME/nagomi/state` on Linux (usually `~/.local/state/nagomi/state`) and `%APPDATA%\nagomi\state` on Windows.
+
+Clicking empty desktop calls the koi to the cursor on Linux. On Windows the desktop belongs to Explorer, so clicks may land on icons instead.
+
+## Troubleshooting
+
+Wallpaper does not start on Linux. The compositor must support layer shell. Check with `hyprctl layers` while it runs; a layer named `nagomi-pond` should be listed. Read the unit log with `journalctl --user -u nagomi-wallpaper`.
+
+`no suitable GPU adapter` in the log. wgpu could not find a Vulkan or GLES device. Install the Vulkan loader and your GPU's driver (Mesa covers Intel and AMD).
+
+Windows: `DXGI_ERROR_NOT_CURRENTLY_AVAILABLE` or a black desktop. The app must run inside a logged-in desktop session, not from a service or a remote session without a desktop. Run it from Explorer or a normal terminal.
+
+Windows: the pond stops updating after the machine sleeps or the VM is paused. The renderer reconfigures its swapchain and recovers on its own; if it stays frozen, restart the app.
+
+Windows: the pond appears as a normal window instead of behind the icons. Explorer was not running when the app started, or its desktop window was recreated. Restart the app after Explorer is up.
+
+High GPU or battery use. Lower the render resolution with `nagomi scale 2`, or reduce the fish count.
+
+Commands report `wallpaper is not running`. The app is not up, or it crashed. Start it first.
 
 ## Differences from upstream
 
-The settings UI, ambient river audio, rain sound, butterfly flower visits, and the duckweed ripple push are not ported. Weather is chosen from the CLI instead of a UI panel.
+The settings UI, ambient river audio, rain sound, butterfly flower visits, and the duckweed ripple push are not ported. Weather is chosen from the CLI instead of a UI panel, and there is no click-to-feed on Windows.
+
+## Uninstall
+
+Linux:
+
+```bash
+systemctl --user disable --now nagomi-wallpaper.service
+rm ~/.config/systemd/user/nagomi-wallpaper.service
+rm ~/.local/bin/nagomi
+rm -rf ~/.local/state/nagomi
+```
+
+Then delete the checkout.
+
+Windows: run `nagomi autostart off`, close the process, and delete the executable and `%APPDATA%\nagomi`.
 
 ## License
 
