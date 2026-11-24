@@ -5,11 +5,13 @@ mod duckweed;
 mod gpu;
 mod lotus;
 mod tiny;
+mod scene;
+mod state;
+mod commands;
 mod weather;
 mod sim;
 
 use std::{
-    path::PathBuf,
     ptr::NonNull,
     time::{Duration, Instant},
 };
@@ -43,57 +45,9 @@ use wayland_client::{
     Connection, Proxy, QueueHandle,
 };
 
-use fish::KoiDraw;
-use gpu::{FishFrame, SurfaceFrame};
-use sim::{FishConfig, School, FIXED_STEP};
+use scene::Scene;
+use sim::FishConfig;
 
-
-fn state_path() -> PathBuf {
-    let base = std::env::var_os("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state")
-        });
-    base.join("nagomi/state")
-}
-
-#[derive(Default)]
-struct SavedState {
-    fish: Option<usize>,
-    ambience: Option<String>,
-    scale: Option<u32>,
-    leaves: Option<usize>,
-    flowers: Option<usize>,
-    duckweed: Option<usize>,
-    butterflies: Option<usize>,
-}
-
-fn load_state() -> SavedState {
-    let mut saved = SavedState::default();
-    let Ok(text) = std::fs::read_to_string(state_path()) else {
-        return saved;
-    };
-    for line in text.lines() {
-        if let Some(value) = line.strip_prefix("fish=") {
-            saved.fish = value.trim().parse::<usize>().ok();
-        } else if let Some(value) = line.strip_prefix("ambience=") {
-            saved.ambience = Some(value.trim().to_string());
-        } else if let Some(value) = line.strip_prefix("scale=") {
-            saved.scale = value.trim().parse::<u32>().ok();
-        } else if let Some(value) = line.strip_prefix("leaves=") {
-            saved.leaves = value.trim().parse::<usize>().ok();
-        } else if let Some(value) = line.strip_prefix("flowers=") {
-            saved.flowers = value.trim().parse::<usize>().ok();
-        } else if let Some(value) = line.strip_prefix("duckweed=") {
-            saved.duckweed = value.trim().parse::<usize>().ok();
-        } else if let Some(value) = line.strip_prefix("butterflies=") {
-            saved.butterflies = value.trim().parse::<usize>().ok();
-        }
-    }
-    saved
-}
-
-const FRAME_INTERVAL: Duration = Duration::from_millis(33);
 
 struct App {
     // Field order matters: the wgpu surface must go before the layer surface.
@@ -114,20 +68,7 @@ struct App {
     exit: bool,
     dump_path: Option<String>,
 
-    school: School,
-    draw: KoiDraw,
-    lotus: lotus::Lotus,
-    lotus_frame: lotus::LotusFrame,
-    duckweed: duckweed::Duckweed,
-    duckweed_frame: duckweed::DuckweedFrame,
-    tiny_frame: tiny::TinyFrame,
-    butterflies: butterflies::Butterflies,
-    butterfly_frame: butterflies::ButterflyFrame,
-    weather: weather::Weather,
-    config: FishConfig,
-    accumulator: f32,
-    sim_time: f32,
-    last_sim: Instant,
+    scene: Scene,
     started: Instant,
 }
 
@@ -276,64 +217,6 @@ impl LayerShellHandler for App {
 }
 
 impl App {
-    fn save_state(&self) {
-        let contents = format!(
-            "fish={}\nambience={}\nscale={}\nleaves={}\nflowers={}\nduckweed={}\nbutterflies={}\n",
-            self.school.count,
-            self.weather.name(),
-            self.renderer.scale(),
-            self.lotus.visible_leaves(),
-            self.lotus.visible_flowers(),
-            self.duckweed.visible_patches(),
-            self.butterflies.visible(),
-        );
-        let path = state_path();
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(path, contents);
-    }
-
-    fn build_frame(&mut self, time: f32) {
-        self.rebuild_fish();
-        self.lotus.update(time, &mut self.lotus_frame);
-        self.duckweed.update(time, &mut self.duckweed_frame);
-        tiny::draw(&self.school.tiny, &mut self.tiny_frame);
-        self.butterflies.draw(time, &mut self.butterfly_frame);
-    }
-
-    fn rebuild_fish(&mut self) {
-        self.draw.clear();
-        for index in 0..self.school.count {
-            let mut fish = self.school.fish[index];
-            let depth = fish::visual_depth(&self.config, fish.depth);
-            let appearance =
-                fish::depth_appearance(&fish::appearance_for(index), &self.config, depth);
-            fish::build_render_spine(&mut fish);
-            fish::draw_koi(&self.config, &fish, &appearance, &mut self.draw);
-        }
-    }
-
-    fn ripple_uniforms(&self) -> ([[f32; 4]; 64], u32) {
-        let mut ripple_data = [[0.0f32; 4]; 64];
-        let mut ripple_count = 0;
-        for ripple in &self.school.ripples.instances {
-            if !ripple.alive || ripple.age < 0.0 || ripple_count >= 64 {
-                continue;
-            }
-            ripple_data[ripple_count] = [
-                ripple.center.x,
-                ripple.center.y,
-                ripple.age,
-                ripple.kind.order_index() as f32 * 2.0 + ripple.sim_strength(),
-            ];
-            ripple_count += 1;
-        }
-        (ripple_data, ripple_count as u32)
-    }
-}
-
-impl App {
     fn handle_commands(&mut self, listener: &std::os::unix::net::UnixListener) {
         use std::io::Write;
         loop {
@@ -342,7 +225,12 @@ impl App {
                     let Some(request) = control::read_request(&stream) else {
                         continue;
                     };
-                    let response = self.handle_command(request.trim());
+                    let response = commands::handle(
+                        request.trim(),
+                        &mut self.scene,
+                        &mut self.renderer,
+                        self.started,
+                    );
                     let _ = stream.write_all(response.as_bytes());
                     let _ = stream.flush();
                 }
@@ -352,116 +240,6 @@ impl App {
         }
     }
 
-    fn handle_command(&mut self, request: &str) -> String {
-        let mut words = request.split_whitespace();
-        match words.next().unwrap_or("") {
-            "" => String::new(),
-            "fish" => match words.next() {
-                None => format!("fish {}\n", self.school.count),
-                Some(value) => match value.parse::<usize>() {
-                    Ok(count) => {
-                        let count = count.clamp(1, sim::MAX_FISH);
-                        self.school.count = count;
-                        self.save_state();
-                        format!("fish {count}\n")
-                    }
-                    Err(_) => format!(
-                        "nagomi: fish needs a number between 1 and {}\n",
-                        sim::MAX_FISH
-                    ),
-                },
-            },
-            "weather" | "ambience" => match words.next() {
-                None => format!(
-                    "ambience {}\navailable: {}\n",
-                    self.weather.name(),
-                    weather::PRESET_NAMES.join(", ")
-                ),
-                Some(name) => match self.weather.set(name) {
-                    Ok(()) => {
-                        self.save_state();
-                        format!("ambience {name}\n")
-                    }
-                    Err(error) => format!("nagomi: {error}\n"),
-                },
-            },
-            "scale" => match words.next() {
-                None => format!("scale {}\n", self.renderer.scale()),
-                Some(value) => match value.parse::<u32>() {
-                    Ok(scale) => match self.renderer.set_scale(scale) {
-                        Ok(()) => {
-                            self.save_state();
-                            format!("scale {scale}\n")
-                        }
-                        Err(error) => format!("nagomi: {error}\n"),
-                    },
-                    Err(_) => "nagomi: scale needs a number between 1 and 4\n".to_string(),
-                },
-            },
-            "leaves" => match words.next() {
-                None => format!("leaves {}\n", self.lotus.visible_leaves()),
-                Some(value) => match value.parse::<usize>() {
-                    Ok(count) => {
-                        let count = self.lotus.set_visible_leaves(count);
-                        self.save_state();
-                        format!("leaves {count}\n")
-                    }
-                    Err(_) => "nagomi: leaves needs a number\n".to_string(),
-                },
-            },
-            "flowers" => match words.next() {
-                None => format!("flowers {}\n", self.lotus.visible_flowers()),
-                Some(value) => match value.parse::<usize>() {
-                    Ok(count) => {
-                        let count = self.lotus.set_visible_flowers(count);
-                        self.save_state();
-                        format!("flowers {count}\n")
-                    }
-                    Err(_) => "nagomi: flowers needs a number\n".to_string(),
-                },
-            },
-            "duckweed" => match words.next() {
-                None => format!("duckweed {}\n", self.duckweed.visible_patches()),
-                Some(value) => match value.parse::<usize>() {
-                    Ok(count) => {
-                        let count = self.duckweed.set_visible_patches(count);
-                        self.save_state();
-                        format!("duckweed {count}\n")
-                    }
-                    Err(_) => "nagomi: duckweed needs a number\n".to_string(),
-                },
-            },
-            "butterflies" => match words.next() {
-                None => format!("butterflies {}\n", self.butterflies.visible()),
-                Some(value) => match value.parse::<usize>() {
-                    Ok(count) => {
-                        let count = self.butterflies.set_visible(count);
-                        self.save_state();
-                        format!("butterflies {count}\n")
-                    }
-                    Err(_) => "nagomi: butterflies needs a number\n".to_string(),
-                },
-            },
-            "scatter" => {
-                self.school.scatter();
-                "ok\n".to_string()
-            }
-            "status" => format!(
-                "fish {}\nambience {}\nscale {}\nleaves {} flowers {} duckweed {} butterflies {}\npid {}\nuptime {:.0}s\n",
-                self.school.count,
-                self.weather.name(),
-                self.renderer.scale(),
-                self.lotus.visible_leaves(),
-                self.lotus.visible_flowers(),
-                self.duckweed.visible_patches(),
-                self.butterflies.visible(),
-                std::process::id(),
-                self.started.elapsed().as_secs_f32()
-            ),
-            "help" | "--help" | "-h" => control::help(),
-            other => format!("nagomi: unknown command '{other}'\n{}", control::help()),
-        }
-    }
 }
 
 impl ProvidesRegistryState for App {
@@ -540,7 +318,7 @@ fn main() -> Result<()> {
         })?
     };
 
-    let saved = load_state();
+    let saved = state::SavedState::load();
     let initial_scale = saved.scale
         .or_else(|| {
             std::env::var("NAGOMI_SCALE")
@@ -551,35 +329,12 @@ fn main() -> Result<()> {
         .clamp(1, 4);
     let renderer =
         pollster::block_on(gpu::Renderer::new(instance, wgpu_surface, initial_scale));
-    let config = FishConfig::default();
-    let mut school = School::new(config);
-    let mut weather = weather::Weather::new();
-    if let Some(name) = &saved.ambience {
-        let _ = weather.set(name);
-    }
+    let mut scene = Scene::new(FishConfig::default());
+    saved.apply(&mut scene);
     if let Ok(name) = std::env::var("NAGOMI_WEATHER") {
-        if weather.set(&name).is_ok() {
-            weather.snap();
+        if scene.weather.set(&name).is_ok() {
+            scene.weather.snap();
         }
-    }
-    if let Some(count) = saved.fish {
-        school.count = count.clamp(1, sim::MAX_FISH);
-    }
-
-    let mut lotus = lotus::Lotus::new();
-    if let Some(count) = saved.leaves {
-        lotus.set_visible_leaves(count);
-    }
-    if let Some(count) = saved.flowers {
-        lotus.set_visible_flowers(count);
-    }
-    let mut duckweed = duckweed::Duckweed::new();
-    if let Some(count) = saved.duckweed {
-        duckweed.set_visible_patches(count);
-    }
-    let mut butterflies = butterflies::Butterflies::new();
-    if let Some(count) = saved.butterflies {
-        butterflies.set_visible(count);
     }
 
     let mut app = App {
@@ -597,20 +352,7 @@ fn main() -> Result<()> {
         configured: false,
         exit: false,
         dump_path: dump_path.clone(),
-        school,
-        draw: KoiDraw::new(),
-        lotus,
-        lotus_frame: lotus::LotusFrame::new(),
-        duckweed,
-        duckweed_frame: duckweed::DuckweedFrame::new(),
-        tiny_frame: tiny::TinyFrame::new(),
-        butterflies,
-        butterfly_frame: butterflies::ButterflyFrame::new(),
-        weather,
-        config,
-        accumulator: 0.0,
-        sim_time: 0.0,
-        last_sim: Instant::now(),
+        scene,
         started: Instant::now(),
     };
 
@@ -641,91 +383,44 @@ fn main() -> Result<()> {
         if app.configured {
             if let Some(path) = app.dump_path.clone() {
                 for _ in 0..600 {
-                    app.school.update(FIXED_STEP, app.sim_time);
-                    app.sim_time += FIXED_STEP;
+                    app.scene.school.update(sim::FIXED_STEP, 0.0);
                 }
-                let (ripple_data, ripple_count) = app.ripple_uniforms();
+                let (ripple_data, ripple_count) = app.scene.ripple_uniforms();
                 let time = app.started.elapsed().as_secs_f32();
-                app.build_frame(time);
+                app.scene.build_frame(time);
+                let (fish_frame, surface_frame) = app.scene.frames();
+                let weather = *app.scene.weather.current();
                 app.renderer.dump_pond(
                     &path,
                     time,
                     &ripple_data,
                     ripple_count,
-                    FishFrame {
-                        outer: &app.draw.outer.vertices,
-                        body: &app.draw.body.vertices,
-                        shadow: &app.draw.shadow.vertices,
-                        disturbance: &app.draw.disturbance,
-                    },
-                    SurfaceFrame {
-                        shadow: &app.lotus_frame.shadow,
-                        leaves: &app.lotus_frame.leaves,
-                        veins: &app.lotus_frame.veins,
-                        flowers: &app.lotus_frame.flowers,
-                        duckweed_shadow: &app.duckweed_frame.shadow,
-                        duckweed_leaves: &app.duckweed_frame.leaves,
-                        duckweed_highlights: &app.duckweed_frame.highlights,
-                        tiny_shadow: &app.tiny_frame.shadow,
-                        tiny_shapes: &app.tiny_frame.shapes,
-                        tiny_details: &app.tiny_frame.details,
-                        butterfly_shadow: &app.butterfly_frame.shadow,
-                        butterflies: &app.butterfly_frame.shapes,
-                    },
-                    app.weather.current(),
+                    fish_frame,
+                    surface_frame,
+                    &weather,
                 )?;
                 break;
             }
         }
         // Fixed-step simulation, independent of the wallpaper frame rate.
-        let now = Instant::now();
-        let delta = (now - app.last_sim).as_secs_f32().min(0.1);
-        app.last_sim = now;
-        app.weather.update(delta);
-        app.school
-            .ripples
-            .set_rain_intensity(app.weather.current().rain.clamp(0.0, 1.0));
-        app.accumulator += delta;
-        while app.accumulator >= FIXED_STEP {
-            app.school.update(FIXED_STEP, app.sim_time);
-            app.butterflies.update(FIXED_STEP, app.sim_time);
-            app.sim_time += FIXED_STEP;
-            app.accumulator -= FIXED_STEP;
-        }
+        app.scene.advance(Instant::now());
         if let Some((x, y)) = app.pending_call.take() {
-            app.school.call_to(sim::vec2(x, y));
+            app.scene.school.call_to(sim::vec2(x, y));
         }
 
-        if app.configured && last_frame.elapsed() >= FRAME_INTERVAL {
-            let (ripple_data, ripple_count) = app.ripple_uniforms();
-
+        if app.configured && last_frame.elapsed() >= scene::FRAME_INTERVAL {
+            let (ripple_data, ripple_count) = app.scene.ripple_uniforms();
             let time = app.started.elapsed().as_secs_f32();
-            app.build_frame(time);
+            app.scene.build_frame(time);
+            let (fish_frame, surface_frame) = app.scene.frames();
+            let weather = *app.scene.weather.current();
             app.renderer.draw(
                 time,
                 &ripple_data,
                 ripple_count,
-                FishFrame {
-                    outer: &app.draw.outer.vertices,
-                    body: &app.draw.body.vertices,
-                    shadow: &app.draw.shadow.vertices,
-                    disturbance: &app.draw.disturbance,
-                },
-                SurfaceFrame {
-                    shadow: &app.lotus_frame.shadow,
-                    leaves: &app.lotus_frame.leaves,
-                    veins: &app.lotus_frame.veins,
-                    flowers: &app.lotus_frame.flowers,
-                    duckweed_shadow: &app.duckweed_frame.shadow,
-                    duckweed_leaves: &app.duckweed_frame.leaves,
-                    duckweed_highlights: &app.duckweed_frame.highlights,
-                    tiny_shadow: &app.tiny_frame.shadow,
-                    tiny_shapes: &app.tiny_frame.shapes,
-                    tiny_details: &app.tiny_frame.details,
-                    butterfly_shadow: &app.butterfly_frame.shadow,
-                    butterflies: &app.butterfly_frame.shapes,
-                },
-                app.weather.current(),
+                fish_frame,
+                surface_frame,
+                &weather,
             );
             last_frame = Instant::now();
         }
