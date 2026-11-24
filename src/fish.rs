@@ -720,7 +720,8 @@ pub fn draw_creature(config: &FishConfig, fish: &Koi, family: usize, draw: &mut 
     let body = tint(palette[0]);
     let second = tint(palette[1]);
     let accent = tint(palette[2]);
-    let eye = tint([0x21, 0x23, 0x25]);
+    let eye = tint([0x1f, 0x21, 0x24]);
+    let white = tint([0xf7, 0xf3, 0xe8]);
 
     let forward = from_angle(fish.heading);
     let side = forward.perpendicular();
@@ -730,222 +731,345 @@ pub fn draw_creature(config: &FishConfig, fish: &Koi, family: usize, draw: &mut 
     let length = fish.body_length;
     let width = fish.body_width;
 
+    let at = |along: f32, across: f32| {
+        head.add(forward.mul(-along * length))
+            .add(side.mul(across * width))
+    };
+    let shadow_strength = (config.shadow_surface_opacity
+        + (config.shadow_deep_opacity - config.shadow_surface_opacity) * depth)
+        * 0.85;
     let shadow_offset = config
         .shadow_offset
         .add(config.shadow_depth_offset.mul(depth));
-    let shadow = config.shadow_surface_opacity
-        + (config.shadow_deep_opacity - config.shadow_surface_opacity) * depth;
     draw.shadow.circle(
         center.add(shadow_offset),
-        length * 0.4,
-        [shadow, shadow, shadow],
+        length * 0.2,
+        [shadow_strength, shadow_strength, shadow_strength],
         14,
     );
 
     match family % 6 {
         0 => {
-            // Axolotl: soft body, feathery gills, long tail.
+            // Axolotl
             draw.outer.ellipse(
-                center, forward, side, length * 0.3, width * 1.05, body, fish.phase_offset, 12,
-            );
-            draw.outer.circle(
-                head.add(forward.mul(length * 0.12)),
-                width * 1.15,
-                body,
-                10,
-            );
-            for index in 0..3 {
-                let offset = (index as f32 - 1.0) * width * 0.9;
-                for direction in [-1.0f32, 1.0] {
-                    let root = head.add(side.mul(offset * direction)).add(forward.mul(width * 0.2));
-                    let tip = root
-                        .sub(forward.mul(length * 0.16))
-                        .add(side.mul(direction * width * 0.9));
-                    draw.outer.triangle(root, tip, root.add(forward.mul(width * 0.4)), accent);
-                }
-            }
-            let tail_tip = tail.add(from_angle(fish.heading).mul(-length * 0.18));
-            draw.outer.triangle(
-                tail,
-                tail_tip.add(side.mul(width * 1.1)),
-                tail_tip.sub(side.mul(width * 1.1)),
-                second,
-            );
-            for direction in [-1.0f32, 1.0] {
-                draw.outer.circle(
-                    head.add(forward.mul(length * 0.16))
-                        .add(side.mul(direction * width * 0.55)),
-                    width * 0.28,
-                    eye,
-                    6,
-                );
-            }
-        }
-        1 => {
-            // Turtle: shell with a darker plate ring, head, flippers.
-            draw.outer.ellipse(
-                center, forward, side, length * 0.3, width * 1.15, body, 0.0, 12,
-            );
-            draw.outer.ellipse(
-                center,
+                at(0.44, 0.0),
                 forward,
                 side,
-                length * 0.2,
-                width * 0.78,
+                length * 0.4,
+                width * 0.9,
+                body,
+                fish.phase_offset,
+                14,
+            );
+            for index in 0..3 {
+                let along = 0.16 + index as f32 * 0.07;
+                let spread = 1.5 + index as f32 * 0.28;
+                for direction in [-1.0f32, 1.0] {
+                    let angle = fish.heading + direction * spread;
+                    let gill = vec2(angle.cos(), angle.sin());
+                    let root = at(along, direction * 0.45);
+                    draw.outer.ellipse(
+                        root.add(gill.mul(width * 0.6)),
+                        gill,
+                        gill.perpendicular(),
+                        width * 0.65,
+                        width * 0.2,
+                        accent,
+                        0.0,
+                        8,
+                    );
+                }
+            }
+            draw.outer.ellipse(
+                at(0.72, 0.0),
+                forward,
+                side,
+                length * 0.26,
+                width * 0.4,
                 second,
                 fish.phase_offset,
                 10,
             );
-            draw.outer.circle(
-                head.add(forward.mul(length * 0.1)),
-                width * 0.85,
-                accent,
-                10,
+            draw.outer.circle(at(0.02, 0.0), width * 0.8, body, 12);
+            draw.outer.ellipse(
+                at(0.45, 0.0),
+                forward,
+                side,
+                length * 0.18,
+                width * 0.4,
+                second,
+                0.0,
+                8,
             );
             for direction in [-1.0f32, 1.0] {
-                for depth_index in [0.0f32, 1.0] {
-                    let root = center
-                        .add(forward.mul(length * (0.2 - depth_index * 0.32)))
-                        .add(side.mul(direction * width * 0.6));
-                    let tip = root
-                        .add(side.mul(direction * width * 0.9))
-                        .sub(forward.mul(length * 0.12));
-                    draw.outer.triangle(root.add(forward.mul(width * 0.3)), tip, root.sub(forward.mul(width * 0.3)), accent);
-                }
+                draw.outer.circle(at(0.12, direction * 0.36), width * 0.17, eye, 6);
             }
-            for direction in [-1.0f32, 1.0] {
-                draw.outer.circle(
-                    head.add(forward.mul(length * 0.16))
-                        .add(side.mul(direction * width * 0.4)),
-                    width * 0.16,
-                    eye,
-                    5,
+        }
+        1 => {
+            // Turtle: flippers first so the shell sits over their roots.
+            for (along, direction) in [
+                (0.22, -1.0f32),
+                (0.22, 1.0),
+                (0.68, -1.0),
+                (0.68, 1.0),
+            ] {
+                let angle = fish.heading
+                    + direction * if along < 0.5 { 0.9 } else { 2.3 };
+                let limb = vec2(angle.cos(), angle.sin());
+                let root = at(along, direction * 0.6);
+                draw.outer.ellipse(
+                    root.add(limb.mul(width * 0.55)),
+                    forward,
+                    side,
+                    width * 0.55,
+                    width * 0.28,
+                    accent,
+                    0.0,
+                    8,
                 );
+            }
+            draw.outer.ellipse(
+                at(0.42, 0.0),
+                forward,
+                side,
+                length * 0.4,
+                width * 1.1,
+                second,
+                0.0,
+                14,
+            );
+            draw.outer.ellipse(
+                at(0.42, 0.0),
+                forward,
+                side,
+                length * 0.33,
+                width * 0.92,
+                body,
+                0.0,
+                14,
+            );
+            for index in 0..3 {
+                let along = 0.26 + index as f32 * 0.13;
+                draw.outer.circle(at(along, 0.0), width * 0.2, second, 6);
+            }
+            draw.outer.circle(at(0.02, 0.0), width * 0.58, accent, 10);
+            for direction in [-1.0f32, 1.0] {
+                draw.outer.circle(at(0.08, direction * 0.24), width * 0.13, eye, 5);
             }
         }
         2 => {
-            // Frog: round body, eyes on top, folded hind legs.
-            draw.outer.circle(center, length * 0.27, body, 12);
+            // Frog: hind legs behind the body, prominent eyes on top.
             for direction in [-1.0f32, 1.0] {
-                let eye_center = head
-                    .add(forward.mul(length * 0.02))
-                    .add(side.mul(direction * width * 0.75));
-                draw.outer.circle(eye_center, width * 0.55, body, 8);
-                draw.outer.circle(eye_center, width * 0.24, eye, 6);
-                let hip = center
-                    .sub(forward.mul(length * 0.22))
-                    .add(side.mul(direction * width * 0.8));
-                let knee = hip
-                    .add(side.mul(direction * width * 0.7))
-                    .sub(forward.mul(length * 0.06));
-                let foot = knee.add(forward.mul(length * 0.18));
-                draw.outer.triangle(hip, knee, foot, second);
+                let hip = at(0.7, direction * 0.65);
+                let ankle = at(0.55, direction * 1.4);
+                draw.outer.ellipse(
+                    hip.add(ankle).mul(0.5),
+                    ankle.sub(hip).normalize_or(side),
+                    ankle.sub(hip).normalize_or(side).perpendicular(),
+                    hip.sub(ankle).length() * 0.62,
+                    width * 0.32,
+                    second,
+                    0.0,
+                    8,
+                );
+                draw.outer.ellipse(
+                    at(0.32, direction * 0.95),
+                    forward,
+                    side,
+                    length * 0.07,
+                    width * 0.22,
+                    second,
+                    0.0,
+                    6,
+                );
             }
-        }
-        3 => {
-            // Duck: oval body, round head, flat beak, folded wing.
             draw.outer.ellipse(
-                center, forward, side, length * 0.31, width * 1.0, body, fish.phase_offset, 12,
-            );
-            let head_center = head.add(forward.mul(length * 0.08));
-            draw.outer.circle(head_center, width * 0.85, body, 10);
-            let beak_root = head_center.add(forward.mul(width * 0.7));
-            draw.outer.triangle(
-                beak_root,
-                beak_root.add(forward.mul(width * 1.1)).add(side.mul(width * 0.25)),
-                beak_root.add(forward.mul(width * 1.1)).sub(side.mul(width * 0.25)),
-                accent,
-            );
-            draw.outer.ellipse(
-                center.sub(forward.mul(length * 0.05)),
+                at(0.42, 0.0),
                 forward,
                 side,
-                length * 0.16,
-                width * 0.55,
+                length * 0.36,
+                width * 1.05,
+                body,
+                fish.phase_offset,
+                14,
+            );
+            for direction in [-1.0f32, 1.0] {
+                let bump = at(0.1, direction * 0.52);
+                draw.outer.circle(bump, width * 0.46, body, 9);
+                draw.outer.circle(
+                    bump.add(forward.mul(width * 0.08)),
+                    width * 0.22,
+                    eye,
+                    6,
+                );
+            }
+            draw.outer.ellipse(
+                at(0.05, 0.0),
+                forward,
+                side,
+                length * 0.03,
+                width * 0.4,
                 second,
-                fish.phase_offset * 0.5,
+                0.0,
+                8,
+            );
+        }
+        3 => {
+            // Duck
+            draw.outer.ellipse(
+                at(0.46, 0.0),
+                forward,
+                side,
+                length * 0.4,
+                width * 0.95,
+                body,
+                fish.phase_offset,
+                14,
+            );
+            draw.outer.triangle(
+                at(0.86, 0.0),
+                at(1.06, 0.45),
+                at(1.06, -0.45),
+                second,
+            );
+            draw.outer.ellipse(
+                at(0.5, 0.4),
+                forward,
+                side,
+                length * 0.2,
+                width * 0.42,
+                second,
+                fish.phase_offset,
                 10,
             );
+            let head_center = at(0.04, 0.0);
+            draw.outer.circle(head_center.add(forward.mul(width * 0.16)), width * 0.6, body, 10);
+            let beak_root = head_center.add(forward.mul(width * 0.62));
+            let beak_tip = beak_root.add(forward.mul(width * 0.75));
+            draw.outer.triangle(
+                beak_root.add(side.mul(width * 0.26)),
+                beak_tip.add(side.mul(width * 0.1)),
+                beak_tip.sub(side.mul(width * 0.1)),
+                accent,
+            );
+            draw.outer.triangle(
+                beak_root.sub(side.mul(width * 0.26)),
+                beak_tip.sub(side.mul(width * 0.1)),
+                beak_tip.add(side.mul(width * 0.1)),
+                accent,
+            );
             draw.outer.circle(
-                head_center.add(side.mul(width * 0.45)),
-                width * 0.16,
+                head_center.add(forward.mul(width * 0.35)).add(side.mul(width * 0.28)),
+                width * 0.11,
                 eye,
                 5,
             );
             draw.outer.circle(
-                head_center.sub(side.mul(width * 0.45)),
-                width * 0.16,
+                head_center.add(forward.mul(width * 0.35)).sub(side.mul(width * 0.28)),
+                width * 0.11,
                 eye,
                 5,
             );
         }
         4 => {
-            // Puffer: round body ringed with spikes.
-            draw.outer.circle(center, length * 0.27, body, 12);
-            draw.outer.circle(center.add(forward.mul(length * 0.04)), length * 0.16, second, 10);
-            for index in 0..10 {
-                let angle = index as f32 / 10.0 * std::f32::consts::TAU;
+            // Puffer: eyes and mouth sit inside the round body.
+            draw.outer.circle(at(0.48, 0.0), length * 0.32, body, 16);
+            for index in 0..12 {
+                let angle = index as f32 / 12.0 * std::f32::consts::TAU;
                 let direction = vec2(angle.cos(), angle.sin());
-                let root = center.add(direction.mul(length * 0.24));
-                draw.outer.triangle(
-                    root,
-                    center.add(direction.mul(length * 0.4)),
-                    root.add(direction.perpendicular().mul(width * 0.4)),
-                    accent,
-                );
+                let root = at(0.48, 0.0).add(direction.mul(length * 0.3));
+                draw.outer.circle(root.add(direction.mul(width * 0.14)), width * 0.17, accent, 6);
             }
-            let tail_tip = tail.sub(forward.mul(length * 0.1));
-            draw.outer.triangle(
-                tail,
-                tail_tip.add(side.mul(width * 0.7)),
-                tail_tip.sub(side.mul(width * 0.7)),
-                accent,
+            draw.outer.ellipse(
+                at(0.54, 0.0),
+                forward,
+                side,
+                length * 0.14,
+                width * 0.42,
+                second,
+                0.0,
+                10,
+            );
+            draw.outer.ellipse(
+                at(0.98, 0.0),
+                forward,
+                side,
+                length * 0.09,
+                width * 0.34,
+                second,
+                0.0,
+                8,
             );
             for direction in [-1.0f32, 1.0] {
-                draw.outer.circle(
-                    head.add(forward.mul(length * 0.1))
-                        .add(side.mul(direction * width * 0.6)),
-                    width * 0.24,
-                    eye,
-                    5,
+                draw.outer.ellipse(
+                    at(0.5, direction * 0.8),
+                    side,
+                    forward,
+                    width * 0.3,
+                    width * 0.14,
+                    accent,
+                    0.0,
+                    8,
                 );
+                let eye_center = at(0.3, direction * 0.38);
+                draw.outer.circle(eye_center, width * 0.28, white, 8);
+                draw.outer.circle(eye_center, width * 0.14, eye, 6);
             }
+            draw.outer.circle(at(0.14, 0.0), width * 0.1, eye, 5);
         }
         _ => {
-            // Newt: sleek body, long tail, tiny legs.
+            // Newt: slim body, visible legs, dorsal stripe.
+            for (along, direction) in [
+                (0.28, -1.0f32),
+                (0.28, 1.0),
+                (0.62, -1.0),
+                (0.62, 1.0),
+            ] {
+                draw.outer.ellipse(
+                    at(along, direction * 0.66),
+                    side,
+                    forward,
+                    width * 0.3,
+                    width * 0.13,
+                    accent,
+                    0.0,
+                    6,
+                );
+            }
             draw.outer.ellipse(
-                center, forward, side, length * 0.34, width * 0.72, body, fish.phase_offset, 12,
+                at(0.44, 0.0),
+                forward,
+                side,
+                length * 0.38,
+                width * 0.58,
+                body,
+                fish.phase_offset,
+                12,
             );
-            draw.outer.circle(head.add(forward.mul(length * 0.1)), width * 0.7, body, 8);
-            let tail_tip = tail.sub(forward.mul(length * 0.15));
-            draw.outer.triangle(
-                tail,
-                tail_tip.add(side.mul(width * 0.6)),
-                tail_tip.sub(side.mul(width * 0.6)),
+            draw.outer.ellipse(
+                at(0.5, 0.0),
+                forward,
+                side,
+                length * 0.26,
+                width * 0.24,
                 second,
+                0.0,
+                10,
             );
+            draw.outer.ellipse(
+                at(0.96, 0.0),
+                forward,
+                side,
+                length * 0.22,
+                width * 0.4,
+                second,
+                0.0,
+                10,
+            );
+            draw.outer.circle(at(0.03, 0.0), width * 0.48, body, 10);
             for direction in [-1.0f32, 1.0] {
-                draw.outer.circle(
-                    center.add(forward.mul(length * 0.1))
-                        .add(side.mul(direction * width * 0.8)),
-                    width * 0.22,
-                    accent,
-                    5,
-                );
-                draw.outer.circle(
-                    center.sub(forward.mul(length * 0.2))
-                        .add(side.mul(direction * width * 0.7)),
-                    width * 0.18,
-                    accent,
-                    5,
-                );
-                draw.outer.circle(
-                    head.add(forward.mul(length * 0.16))
-                        .add(side.mul(direction * width * 0.35)),
-                    width * 0.14,
-                    eye,
-                    5,
-                );
+                draw.outer.circle(at(0.09, direction * 0.24), width * 0.13, eye, 5);
+                draw.outer.circle(at(0.42, direction * 0.32), width * 0.07, accent, 4);
             }
         }
     }
