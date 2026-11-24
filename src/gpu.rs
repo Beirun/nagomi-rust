@@ -298,6 +298,7 @@ pub struct Renderer {
     current_times: [f32; 3],
     last_time: f32,
     _weather_pipeline: wgpu::RenderPipeline,
+    weather_pipeline_rgba: wgpu::RenderPipeline,
     _weather_uniforms: wgpu::Buffer,
     weather_layout: wgpu::BindGroupLayout,
     weather_bind_group: wgpu::BindGroup,
@@ -988,6 +989,12 @@ impl Renderer {
         );
         let weather_pipeline =
             fullscreen_pipeline(&weather_module, &weather_layout, "weather", surface_format);
+        let weather_pipeline_rgba = fullscreen_pipeline(
+            &weather_module,
+            &weather_layout,
+            "weather rgba",
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
 
         Self {
             surface,
@@ -1047,6 +1054,7 @@ impl Renderer {
             current_times: [0.0; 3],
             last_time: 0.0,
             _weather_pipeline: weather_pipeline,
+            weather_pipeline_rgba,
             _weather_uniforms: weather_uniforms,
             weather_layout,
             weather_bind_group,
@@ -1201,6 +1209,30 @@ impl Renderer {
                 speck: [0.02, 0.065, 0.04, 1.0],
             }),
         );
+        self.queue.write_buffer(
+            &self._weather_uniforms,
+            0,
+            bytemuck::bytes_of(&WeatherUniforms {
+                time,
+                brightness: weather.brightness,
+                contrast: weather.contrast,
+                saturation: weather.saturation,
+                vignette: weather.vignette,
+                cloud_strength: weather.cloud_strength,
+                light_strength: weather.light_strength,
+                pad0: 0.0,
+                light_direction: weather.light_direction,
+                pad1: [0.0, 0.0],
+                tint: [weather.tint[0], weather.tint[1], weather.tint[2], 1.0],
+                light_color: [
+                    weather.light_color[0],
+                    weather.light_color[1],
+                    weather.light_color[2],
+                    1.0,
+                ],
+            }),
+        );
+
         self.queue.write_buffer(
             &self.fish_uniforms,
             0,
@@ -1648,6 +1680,13 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let dump_target = Target::new_sized(
+            &self.device,
+            wgpu::TextureFormat::Rgba8Unorm,
+            width,
+            height,
+            "dump weather",
+        );
         self.encode_pond(
             &mut encoder,
             time,
@@ -1657,9 +1696,30 @@ impl Renderer {
             surface,
             weather,
         );
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("dump weather"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &dump_target.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.weather_pipeline_rgba);
+            pass.set_bind_group(0, &self.weather_bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.composite.texture,
+                texture: &dump_target.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -1738,29 +1798,6 @@ impl Renderer {
             weather,
         );
 
-        self.queue.write_buffer(
-            &self._weather_uniforms,
-            0,
-            bytemuck::bytes_of(&WeatherUniforms {
-                time,
-                brightness: weather.brightness,
-                contrast: weather.contrast,
-                saturation: weather.saturation,
-                vignette: weather.vignette,
-                cloud_strength: weather.cloud_strength,
-                light_strength: weather.light_strength,
-                pad0: 0.0,
-                light_direction: weather.light_direction,
-                pad1: [0.0, 0.0],
-                tint: [weather.tint[0], weather.tint[1], weather.tint[2], 1.0],
-                light_color: [
-                    weather.light_color[0],
-                    weather.light_color[1],
-                    weather.light_color[2],
-                    1.0,
-                ],
-            }),
-        );
 
         // Weather post pass writes the swapchain, nearest-upscaling the pond.
         {

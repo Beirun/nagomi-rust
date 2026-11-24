@@ -481,6 +481,11 @@ fn main() -> Result<()> {
     if let Some(name) = saved_ambience {
         let _ = weather.set(&name);
     }
+    if let Ok(name) = std::env::var("NAGOMI_WEATHER") {
+        if weather.set(&name).is_ok() {
+            weather.snap();
+        }
+    }
     if let Some(count) = saved_fish {
         school.count = count.clamp(1, sim::MAX_FISH);
     }

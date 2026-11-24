@@ -303,6 +303,11 @@ impl Weather {
     pub fn current(&self) -> &WeatherParams {
         &self.current
     }
+
+    /// Jump straight to the target preset instead of blending into it.
+    pub fn snap(&mut self) {
+        self.current = self.target;
+    }
 }
 
 fn blend_color(current: &mut [f32; 3], target: &[f32; 3], blend: f32) {
