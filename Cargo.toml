@@ -1,0 +1,19 @@
+[package]
+name = "nagomi-native"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "30"
+smithay-client-toolkit = { version = "0.21", features = ["calloop"] }
+raw-window-handle = "0.6"
+wayland-client = { version = "0.31", features = ["system", "libwayland_1_23"] }
+calloop = "0.14"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[profile.release]
+opt-level = 2
