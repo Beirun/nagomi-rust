@@ -1,12 +1,14 @@
 //! Port of lotus-leaves.ts: static leaf/flower geometry with per-frame transforms.
 
 use crate::fish::Vertex;
-use crate::sim::{vec2, Vec2};
+use crate::sim::{vec2, Vec2, XorShift32};
 
 const TAU: f32 = std::f32::consts::TAU;
 
 pub const VISIBLE_LEAF_COUNT: usize = 15;
 pub const VISIBLE_FLOWER_COUNT: usize = 4;
+pub const MAX_LEAVES: usize = 32;
+pub const MAX_FLOWERS: usize = 16;
 
 const RADIUS_SCALE: f32 = 1.18;
 const FLOWER_RADIUS_SCALE: f32 = 2.38;
@@ -127,6 +129,51 @@ const FLOWER_PLACEMENTS: [FlowerPlacement; 4] = [
     FlowerPlacement { leaf_index: 9, radius: 4.5, offset: vec2(-1.0, 0.5), rotation: 0.15, palette: 1 },
 ];
 
+fn random_int(rng: &mut XorShift32, low: i32, high: i32) -> i32 {
+    low + (rng.unit() * (high - low) as f32) as i32
+}
+
+fn random_edge_position(rng: &mut XorShift32) -> Vec2 {
+    match random_int(rng, 0, 4) {
+        0 => vec2(
+            random_int(rng, 16, 465) as f32,
+            random_int(rng, 8, 43) as f32,
+        ),
+        1 => vec2(
+            random_int(rng, 438, 473) as f32,
+            random_int(rng, 16, 255) as f32,
+        ),
+        2 => vec2(
+            random_int(rng, 16, 465) as f32,
+            random_int(rng, 228, 263) as f32,
+        ),
+        _ => vec2(
+            random_int(rng, 8, 43) as f32,
+            random_int(rng, 16, 255) as f32,
+        ),
+    }
+}
+
+fn generated_leaf(rng: &mut XorShift32) -> LeafPlacement {
+    LeafPlacement {
+        position: random_edge_position(rng),
+        radius: rng.range(12.0, 27.0),
+        angle: rng.range(0.0, TAU),
+        phase: rng.range(0.0, TAU),
+        palette: if rng.unit() < 0.5 { 0 } else { 1 },
+    }
+}
+
+fn generated_flower(rng: &mut XorShift32) -> FlowerPlacement {
+    FlowerPlacement {
+        leaf_index: random_int(rng, 0, VISIBLE_LEAF_COUNT as i32) as usize,
+        radius: rng.range(4.2, 6.2),
+        offset: vec2(rng.range(-2.2, 2.2), rng.range(-2.2, 2.2)),
+        rotation: rng.range(0.0, TAU),
+        palette: if rng.unit() < 0.5 { 0 } else { 1 },
+    }
+}
+
 fn edge_point(radius: f32, angle: f32, phase: f32) -> Vec2 {
     let wobble =
         1.0 + (angle * 3.0 + phase).sin() * 0.035 + (angle * 5.0 - phase).cos() * 0.025;
@@ -185,6 +232,8 @@ impl LotusFrame {
 }
 
 pub struct Lotus {
+    placements: Vec<LeafPlacement>,
+    flower_placements: Vec<FlowerPlacement>,
     leaves: Vec<LocalLeaf>,
     flowers: Vec<LocalFlower>,
     visible_leaves: usize,
@@ -193,8 +242,18 @@ pub struct Lotus {
 
 impl Lotus {
     pub fn new() -> Self {
+        let mut rng = XorShift32::new(0x1eaf_5eed);
+        let mut placements: Vec<LeafPlacement> = LEAF_PLACEMENTS.to_vec();
+        while placements.len() < MAX_LEAVES {
+            placements.push(generated_leaf(&mut rng));
+        }
+        let mut flower_placements: Vec<FlowerPlacement> = FLOWER_PLACEMENTS.to_vec();
+        while flower_placements.len() < MAX_FLOWERS {
+            flower_placements.push(generated_flower(&mut rng));
+        }
+
         let mut leaves = Vec::new();
-        for placement in LEAF_PLACEMENTS.iter() {
+        for placement in placements.iter() {
             let palette = &LEAF_PALETTES[placement.palette % LEAF_PALETTES.len()];
             let radius = placement.radius * RADIUS_SCALE;
             let start = placement.angle + NOTCH_HALF_ANGLE;
@@ -247,7 +306,7 @@ impl Lotus {
         }
 
         let mut flowers = Vec::new();
-        for placement in FLOWER_PLACEMENTS.iter() {
+        for placement in flower_placements.iter() {
             let palette = &FLOWER_PALETTES[placement.palette % FLOWER_PALETTES.len()];
             let radius = placement.radius * FLOWER_RADIUS_SCALE;
             let mut triangles = Vec::new();
@@ -308,6 +367,8 @@ impl Lotus {
         }
 
         Self {
+            placements,
+            flower_placements,
             leaves,
             flowers,
             visible_leaves: VISIBLE_LEAF_COUNT,
@@ -347,7 +408,7 @@ impl Lotus {
         frame.veins.clear();
         frame.flowers.clear();
 
-        let mut centers = [Vec2::default(); LEAF_PLACEMENTS.len()];
+        let mut centers = vec![Vec2::default(); self.placements.len()];
         for (index, leaf) in self.leaves.iter().enumerate() {
             if index >= self.visible_leaves {
                 continue;
@@ -392,14 +453,14 @@ impl Lotus {
             if index >= self.visible_flowers {
                 continue;
             }
-            let placement = &FLOWER_PLACEMENTS[index];
+            let placement = &self.flower_placements[index];
             if placement.leaf_index >= self.visible_leaves {
                 continue;
             }
             let Some(leaf_center) = centers.get(placement.leaf_index) else {
                 continue;
             };
-            let rotation = (time * 0.12 + LEAF_PLACEMENTS[placement.leaf_index].phase).sin() * 0.04;
+            let rotation = (time * 0.12 + self.placements[placement.leaf_index].phase).sin() * 0.04;
             let origin = leaf_center.add(placement.offset);
             for vertex in &flower.triangles {
                 let local = vec2(vertex.position[0], vertex.position[1]);

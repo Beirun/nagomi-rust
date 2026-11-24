@@ -57,10 +57,10 @@ nagomi fish 20         # set it, 1 to 48
 nagomi weather         # current ambience and the available names
 nagomi weather rain    # sunny, deep-clear, overcast, mist, sunset, moonlight, rain
 nagomi scale 4         # render resolution, 1 (480x270) to 4 (native)
-nagomi leaves 12       # lotus leaves, 0-19
-nagomi flowers 3       # lotus flowers, 0-4
-nagomi duckweed 5      # duckweed patches, 0-8
-nagomi butterflies 2   # butterflies, 0-4
+nagomi leaves 12       # lotus leaves, 0-32
+nagomi flowers 3       # lotus flowers, 0-16
+nagomi duckweed 5      # duckweed patches, 0-16
+nagomi butterflies 2   # butterflies, 0-16
 nagomi scatter         # startle the koi
 nagomi status          # fish, ambience, scale, scene counts, pid, uptime
 ```

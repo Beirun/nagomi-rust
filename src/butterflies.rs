@@ -1,10 +1,11 @@
 //! Port of butterflies.ts: wander-flight behavior plus the wing/body drawing.
 
 use crate::fish::Vertex;
-use crate::sim::{clamp, vec2, wrap_angle, Vec2, POND_H, POND_W};
+use crate::sim::{clamp, vec2, wrap_angle, Vec2, XorShift32, POND_H, POND_W};
 
 const TAU: f32 = std::f32::consts::TAU;
 const VISIBLE_COUNT: usize = 4;
+const MAX_BUTTERFLIES: usize = 16;
 const EDGE_MARGIN: f32 = 14.0;
 const BODY_LENGTH: f32 = 3.8;
 const BODY_WIDTH: f32 = 0.32;
@@ -105,8 +106,16 @@ impl ButterflyFrame {
 
 impl Butterflies {
     pub fn new() -> Self {
+        let mut rng = XorShift32::new(0xb177_3f1e);
+        let mut spawns: Vec<(f32, f32)> = SPAWNS.to_vec();
+        while spawns.len() < MAX_BUTTERFLIES {
+            spawns.push((
+                24.0 + rng.unit() * (POND_W - 48.0),
+                24.0 + rng.unit() * (POND_H - 48.0),
+            ));
+        }
         let mut butterflies = Vec::new();
-        for (index, spawn) in SPAWNS.iter().enumerate() {
+        for (index, spawn) in spawns.iter().enumerate() {
             let mut butterfly = Butterfly {
                 position: vec2(spawn.0, spawn.1),
                 heading: index as f32 * 1.7,
@@ -118,8 +127,8 @@ impl Butterflies {
                 flap_phase: 0.0,
                 curve_frequency: 1.0,
                 speed_phase: 0.0,
-                phase: index as f32 * 1.3,
-                palette: index % PALETTES.len(),
+                phase: rng.unit() * TAU,
+                palette: (rng.unit() * PALETTES.len() as f32) as usize % PALETTES.len(),
                 random_state: 0x9e37_79b9 ^ (index as u32 + 1).wrapping_mul(0x85eb_ca6b),
             };
             butterfly.cruise_speed = butterfly.range((MIN_SPEED, MAX_SPEED));

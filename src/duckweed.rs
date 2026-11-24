@@ -1,7 +1,7 @@
 //! Port of duckweed.ts + duckweed-geometry.ts. Transforms run on the CPU.
 
 use crate::fish::Vertex;
-use crate::sim::{vec2, Vec2};
+use crate::sim::{vec2, Vec2, XorShift32};
 
 const TAU: f32 = std::f32::consts::TAU;
 const LEAF_SEGMENTS: usize = 7;
@@ -9,6 +9,7 @@ const HIGHLIGHT_SEGMENTS: usize = 5;
 const HIGHLIGHT_MIN_RADIUS: f32 = 1.55;
 
 const VISIBLE_PATCH_COUNT: usize = 8;
+const MAX_PATCHES: usize = 16;
 const MIN_LEAF_RADIUS: f32 = 1.05;
 const MAX_LEAF_RADIUS: f32 = 3.35;
 const VERTICAL_SCALE: f32 = 0.76;
@@ -42,6 +43,7 @@ const PALETTES: [Palette; 2] = [
     Palette { base: rgb(0x83d35b), light: rgb(0xb1ed76), shade: rgb(0x549e43), center: rgb(0xd0f28a) },
 ];
 
+#[derive(Clone, Copy)]
 struct Patch {
     position: Vec2,
     radius: f32,
@@ -91,14 +93,45 @@ impl DuckweedFrame {
 }
 
 pub struct Duckweed {
+    patches: Vec<Patch>,
     leaves: Vec<Vec<LeafShape>>,
     visible_patches: usize,
 }
 
 impl Duckweed {
     pub fn new() -> Self {
+        let mut rng = XorShift32::new(0x0d0c_a11e);
+        let mut patches: Vec<Patch> = PATCHES.to_vec();
+        while patches.len() < MAX_PATCHES {
+            let position = match (rng.unit() * 4.0) as u32 {
+                0 => vec2(
+                    16.0 + rng.unit() * 449.0,
+                    8.0 + rng.unit() * 35.0,
+                ),
+                1 => vec2(
+                    438.0 + rng.unit() * 35.0,
+                    16.0 + rng.unit() * 239.0,
+                ),
+                2 => vec2(
+                    16.0 + rng.unit() * 449.0,
+                    228.0 + rng.unit() * 35.0,
+                ),
+                _ => vec2(
+                    8.0 + rng.unit() * 35.0,
+                    16.0 + rng.unit() * 239.0,
+                ),
+            };
+            patches.push(Patch {
+                position,
+                radius: 18.0 + rng.unit() * 25.0,
+                count: 18 + (rng.unit() * 15.0) as usize,
+                phase: rng.unit() * TAU,
+                palette: if rng.unit() < 0.5 { 0 } else { 1 },
+            });
+        }
+
         let mut leaves = Vec::new();
-        for (patch_index, patch) in PATCHES.iter().enumerate() {
+        for (patch_index, patch) in patches.iter().enumerate() {
             let mut shapes = Vec::with_capacity(patch.count);
             for index in 0..patch.count {
                 let seed = (patch_index * 1013 + index * 37 + 11) as f32;
@@ -120,6 +153,7 @@ impl Duckweed {
             leaves.push(shapes);
         }
         Self {
+            patches,
             leaves,
             visible_patches: VISIBLE_PATCH_COUNT,
         }
@@ -143,7 +177,8 @@ impl Duckweed {
         frame.leaves.clear();
         frame.highlights.clear();
 
-        for (patch_index, patch) in PATCHES
+        for (patch_index, patch) in self
+            .patches
             .iter()
             .enumerate()
             .take(self.visible_patches)
