@@ -9,6 +9,7 @@ usage: nagomi <command> [args]
   weather            show the current ambience and the available names
   weather <name>     switch ambience: {}
   ambience <name>    alias for weather
+  cycle [on|off]     follow the clock: dawn, day, golden hour, dusk, night
   scale [1-4]        show or set render resolution; 1 = 480x270 pixel art, 4 = native
   leaves [0-32]      show or set the number of lotus leaves
   flowers [0-16]     show or set the number of lotus flowers

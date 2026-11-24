@@ -39,7 +39,10 @@ pub fn handle(
                 weather::PRESET_NAMES.join(", ")
             ),
             Some(name) => match scene.weather.set(name) {
-                Ok(()) => format!("ambience {name}\n"),
+                Ok(()) => {
+                    scene.weather.set_cycle(false);
+                    format!("ambience {name}\n")
+                }
                 Err(error) => format!("nagomi: {error}\n"),
             },
         },
@@ -93,6 +96,25 @@ pub fn handle(
                 Err(_) => "nagomi: butterflies needs a number\n".to_string(),
             },
         },
+        "cycle" => match words.next() {
+            None => format!(
+                "cycle {}\n",
+                if scene.weather.cycle_enabled() { "on" } else { "off" }
+            ),
+            Some("on") => {
+                scene.weather.set_cycle(true);
+                use chrono::Timelike;
+                let local = chrono::Local::now();
+                let hour = local.hour() as f32 + local.minute() as f32 / 60.0;
+                scene.weather.apply_cycle(hour);
+                "cycle on\n".to_string()
+            }
+            Some("off") => {
+                scene.weather.set_cycle(false);
+                "cycle off\n".to_string()
+            }
+            Some(_) => "nagomi: cycle takes on or off\n".to_string(),
+        },
         "autostart" => match words.next() {
             None => autostart(None),
             Some("on") => autostart(Some(true)),
@@ -104,9 +126,10 @@ pub fn handle(
             "ok\n".to_string()
         }
         "status" => format!(
-            "fish {}\nambience {}\nscale {}\nleaves {} flowers {} duckweed {} butterflies {}\npid {}\nuptime {:.0}s\n",
+            "fish {}\nambience {}\ncycle {}\nscale {}\nleaves {} flowers {} duckweed {} butterflies {}\npid {}\nuptime {:.0}s\n",
             scene.school.count,
             scene.weather.name(),
+            if scene.weather.cycle_enabled() { "on" } else { "off" },
             renderer.scale(),
             scene.lotus.visible_leaves(),
             scene.lotus.visible_flowers(),

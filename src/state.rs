@@ -14,6 +14,7 @@ pub struct SavedState {
     pub flowers: Option<usize>,
     pub duckweed: Option<usize>,
     pub butterflies: Option<usize>,
+    pub cycle: Option<bool>,
 }
 
 fn base_dir() -> PathBuf {
@@ -57,6 +58,7 @@ impl SavedState {
                 "flowers" => saved.flowers = value.parse().ok(),
                 "duckweed" => saved.duckweed = value.parse().ok(),
                 "butterflies" => saved.butterflies = value.parse().ok(),
+                "cycle" => saved.cycle = Some(value == "on"),
                 _ => {}
             }
         }
@@ -82,11 +84,14 @@ impl SavedState {
         if let Some(count) = self.butterflies {
             scene.butterflies.set_visible(count);
         }
+        if let Some(cycle) = self.cycle {
+            scene.weather.set_cycle(cycle);
+        }
     }
 
     pub fn save(scene: &Scene, scale: u32) {
         let contents = format!(
-            "fish={}\nambience={}\nscale={}\nleaves={}\nflowers={}\nduckweed={}\nbutterflies={}\n",
+            "fish={}\nambience={}\nscale={}\nleaves={}\nflowers={}\nduckweed={}\nbutterflies={}\ncycle={}\n",
             scene.school.count,
             scene.weather.name(),
             scale,
@@ -94,6 +99,7 @@ impl SavedState {
             scene.lotus.visible_flowers(),
             scene.duckweed.visible_patches(),
             scene.butterflies.visible(),
+            if scene.weather.cycle_enabled() { "on" } else { "off" },
         );
         let path = state_path();
         if let Some(parent) = path.parent() {

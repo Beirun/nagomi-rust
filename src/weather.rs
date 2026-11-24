@@ -45,15 +45,29 @@ pub struct WeatherParams {
     pub rain: f32,
 }
 
-pub const PRESET_NAMES: [&str; 7] = [
+pub const PRESET_NAMES: [&str; 9] = [
     "sunny",
     "deep-clear",
     "overcast",
     "mist",
+    "dawn",
     "sunset",
+    "dusk",
     "moonlight",
     "rain",
 ];
+
+/// Which ambience the clock maps to. Hours are local time; dawn runs 05:00 to
+/// 07:00, day to 16:00, golden hour to 18:30, dusk to 20:30, then night.
+pub fn cycle_target(hour: f32) -> &'static str {
+    match hour {
+        h if (5.0..7.0).contains(&h) => "dawn",
+        h if (7.0..16.0).contains(&h) => "sunny",
+        h if (16.0..18.5).contains(&h) => "sunset",
+        h if (18.5..20.5).contains(&h) => "dusk",
+        _ => "moonlight",
+    }
+}
 
 const SHADOW: [f32; 3] = [11.0 / 255.0, 33.0 / 255.0, 30.0 / 255.0];
 
@@ -224,6 +238,52 @@ pub fn preset(name: &str) -> Option<WeatherParams> {
                 ..SUNNY_WATER
             };
         }
+        "dawn" => {
+            params.tint = [1.0, 0.9, 0.86];
+            params.brightness = 0.78;
+            params.contrast = 0.98;
+            params.saturation = 0.9;
+            params.vignette = 0.15;
+            params.cloud_strength = 0.3;
+            params.light_color = [1.0, 0.62, 0.48];
+            params.light_strength = 0.15;
+            params.light_direction = [-0.45, 0.9];
+            params.water = WaterParams {
+                large: [0.03, 0.06, 0.05],
+                large_core: [0.07, 0.14, 0.1],
+                large_opacity: 0.8,
+                large_speed: 0.7,
+                secondary_opacity: 0.12,
+                secondary_speed: 0.7,
+                detail_opacity: 0.7,
+                detail_speed: 0.7,
+                ..SUNNY_WATER
+            };
+        }
+        "dusk" => {
+            params.tint = [0.66, 0.68, 0.95];
+            params.brightness = 0.66;
+            params.contrast = 1.04;
+            params.saturation = 0.78;
+            params.vignette = 0.3;
+            params.cloud_strength = 0.2;
+            params.light_color = [0.9, 0.42, 0.55];
+            params.light_strength = 0.1;
+            params.light_direction = [0.62, 0.78];
+            params.water = WaterParams {
+                large: [0.02, 0.045, 0.075],
+                large_core: [0.045, 0.09, 0.17],
+                large_opacity: 0.85,
+                large_speed: 0.5,
+                secondary: [0.018, 0.04, 0.07],
+                secondary_core: [0.04, 0.085, 0.16],
+                secondary_opacity: 0.1,
+                secondary_speed: 0.4,
+                detail_opacity: 0.6,
+                detail_speed: 0.5,
+                ..SUNNY_WATER
+            };
+        }
         "rain" => {
             params.tint = [0.67, 0.86, 0.96];
             params.brightness = 0.72;
@@ -264,6 +324,7 @@ pub struct Weather {
     current: WeatherParams,
     target: WeatherParams,
     name: String,
+    cycle: bool,
 }
 
 impl Weather {
@@ -273,6 +334,7 @@ impl Weather {
             current: sunny,
             target: sunny,
             name: "sunny".to_string(),
+            cycle: false,
         }
     }
 
@@ -298,6 +360,23 @@ impl Weather {
     pub fn update(&mut self, delta: f32) {
         let blend = 1.0 - (-delta.clamp(0.0, 0.1) * 2.25).exp();
         blend_params(&mut self.current, &self.target, blend);
+    }
+
+    pub fn cycle_enabled(&self) -> bool {
+        self.cycle
+    }
+
+    pub fn set_cycle(&mut self, enabled: bool) {
+        self.cycle = enabled;
+    }
+
+    /// Point the weather at the preset for the local hour, when the phase
+    /// changes.
+    pub fn apply_cycle(&mut self, hour: f32) {
+        let target = cycle_target(hour);
+        if self.name != target {
+            let _ = self.set(target);
+        }
     }
 
     pub fn current(&self) -> &WeatherParams {
@@ -367,4 +446,24 @@ fn blend_params(current: &mut WeatherParams, target: &WeatherParams, blend: f32)
     blend_water(&mut current.water, &target.water, blend);
     blend_color(&mut current.shadow_color, &target.shadow_color, blend);
     blend_scalar(&mut current.rain, target.rain, blend);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cycle_target;
+
+    #[test]
+    fn cycle_follows_local_hours() {
+        assert_eq!(cycle_target(5.0), "dawn");
+        assert_eq!(cycle_target(6.99), "dawn");
+        assert_eq!(cycle_target(7.0), "sunny");
+        assert_eq!(cycle_target(15.99), "sunny");
+        assert_eq!(cycle_target(16.0), "sunset");
+        assert_eq!(cycle_target(18.49), "sunset");
+        assert_eq!(cycle_target(18.5), "dusk");
+        assert_eq!(cycle_target(20.49), "dusk");
+        assert_eq!(cycle_target(20.5), "moonlight");
+        assert_eq!(cycle_target(0.0), "moonlight");
+        assert_eq!(cycle_target(4.99), "moonlight");
+    }
 }

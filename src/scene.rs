@@ -55,6 +55,12 @@ impl Scene {
     pub fn advance(&mut self, now: Instant) {
         let delta = (now - self.last_sim).as_secs_f32().min(0.1);
         self.last_sim = now;
+        if self.weather.cycle_enabled() {
+            use chrono::Timelike;
+            let local = chrono::Local::now();
+            let hour = local.hour() as f32 + local.minute() as f32 / 60.0;
+            self.weather.apply_cycle(hour);
+        }
         self.weather.update(delta);
         self.school
             .ripples
