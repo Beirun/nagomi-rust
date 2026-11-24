@@ -324,6 +324,17 @@ pub fn build_render_spine(fish: &mut Koi) {
             * (0.08 + fish.tail_effort * 0.92);
         fish.render_spine[node] = fish.spine[node].add(normal.mul(wave));
     }
+
+    // Light smoothing rounds the remaining corners between joints without
+    // moving the head or the tail tip.
+    for _ in 0..2 {
+        for node in 1..SPINE_NODES - 1 {
+            let neighbours = fish.render_spine[node - 1].add(fish.render_spine[node + 1]);
+            fish.render_spine[node] = fish.render_spine[node]
+                .mul(0.6)
+                .add(neighbours.mul(0.2));
+        }
+    }
 }
 
 fn silhouette_triangle(

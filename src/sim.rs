@@ -59,6 +59,17 @@ pub fn wrap_angle(angle: f32) -> f32 {
     angle.sin().atan2(angle.cos())
 }
 
+/// Rotate `direction` toward `reference` so they differ by at most `max_angle`.
+fn clamp_bend(direction: Vec2, reference: Vec2, max_angle: f32) -> Vec2 {
+    let reference_angle = reference.y.atan2(reference.x);
+    let angle = wrap_angle(direction.y.atan2(direction.x) - reference_angle);
+    if angle.abs() <= max_angle {
+        return direction;
+    }
+    let clamped = angle.clamp(-max_angle, max_angle);
+    from_angle(reference_angle + clamped)
+}
+
 #[derive(Clone, Copy)]
 pub struct XorShift32 {
     pub state: u32,
@@ -1036,6 +1047,49 @@ impl School {
             let tail_amount = node as f32 / (SPINE_NODES - 1) as f32;
             let stiffness = 0.94 - tail_amount * 0.17;
             fish.spine[node] = fish.spine[node].lerp(constrained, stiffness);
+        }
+
+        // A koi bends as a chain, not at one joint. Cap each joint's bend
+        // relative to the segment in front of it so sharp turns arc the body
+        // instead of folding at the neck.
+        const MAX_JOINT_BEND: f32 = 0.3;
+        let mut previous = from_angle(fish.heading).mul(-1.0);
+        for node in 1..SPINE_NODES {
+            let offset = fish.spine[node].sub(fish.spine[node - 1]);
+            let length = offset.length().max(0.001);
+            let direction = clamp_bend(offset.normalize_or(previous), previous, MAX_JOINT_BEND);
+            fish.spine[node] = fish.spine[node - 1].add(direction.mul(length));
+            previous = direction;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn koi_joints_never_kink() {
+        let mut school = School::new(FishConfig::default());
+        let mut time = 0.0;
+        for step in 0..7200 {
+            if step == 1200 || step == 3600 {
+                school.scatter();
+            }
+            school.update(FIXED_STEP, time);
+            time += FIXED_STEP;
+            for fish in school.fish.iter().take(school.count) {
+                for node in 2..SPINE_NODES {
+                    let a = fish.spine[node - 1].sub(fish.spine[node - 2]);
+                    let b = fish.spine[node].sub(fish.spine[node - 1]);
+                    let bend =
+                        wrap_angle(b.y.atan2(b.x) - a.y.atan2(a.x)).abs();
+                    assert!(
+                        bend <= 0.3 + 1e-3,
+                        "joint {node} bent {bend} rad at step {step}"
+                    );
+                }
+            }
         }
     }
 }
