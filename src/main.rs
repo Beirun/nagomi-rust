@@ -57,34 +57,40 @@ fn state_path() -> PathBuf {
     base.join("nagomi/state")
 }
 
-fn load_state() -> (Option<usize>, Option<String>, Option<u32>) {
-    let Ok(text) = std::fs::read_to_string(state_path()) else {
-        return (None, None, None);
-    };
-    let mut fish = None;
-    let mut ambience = None;
-    let mut scale = None;
-    for line in text.lines() {
-        if let Some(value) = line.strip_prefix("fish=") {
-            fish = value.trim().parse::<usize>().ok();
-        } else if let Some(value) = line.strip_prefix("ambience=") {
-            ambience = Some(value.trim().to_string());
-        } else if let Some(value) = line.strip_prefix("scale=") {
-            scale = value.trim().parse::<u32>().ok();
-        }
-    }
-    (fish, ambience, scale)
+#[derive(Default)]
+struct SavedState {
+    fish: Option<usize>,
+    ambience: Option<String>,
+    scale: Option<u32>,
+    leaves: Option<usize>,
+    flowers: Option<usize>,
+    duckweed: Option<usize>,
+    butterflies: Option<usize>,
 }
 
-fn save_state(fish: usize, ambience: &str, scale: u32) {
-    let path = state_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+fn load_state() -> SavedState {
+    let mut saved = SavedState::default();
+    let Ok(text) = std::fs::read_to_string(state_path()) else {
+        return saved;
+    };
+    for line in text.lines() {
+        if let Some(value) = line.strip_prefix("fish=") {
+            saved.fish = value.trim().parse::<usize>().ok();
+        } else if let Some(value) = line.strip_prefix("ambience=") {
+            saved.ambience = Some(value.trim().to_string());
+        } else if let Some(value) = line.strip_prefix("scale=") {
+            saved.scale = value.trim().parse::<u32>().ok();
+        } else if let Some(value) = line.strip_prefix("leaves=") {
+            saved.leaves = value.trim().parse::<usize>().ok();
+        } else if let Some(value) = line.strip_prefix("flowers=") {
+            saved.flowers = value.trim().parse::<usize>().ok();
+        } else if let Some(value) = line.strip_prefix("duckweed=") {
+            saved.duckweed = value.trim().parse::<usize>().ok();
+        } else if let Some(value) = line.strip_prefix("butterflies=") {
+            saved.butterflies = value.trim().parse::<usize>().ok();
+        }
     }
-    let _ = std::fs::write(
-        path,
-        format!("fish={fish}\nambience={ambience}\nscale={scale}\n"),
-    );
+    saved
 }
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(33);
@@ -270,6 +276,24 @@ impl LayerShellHandler for App {
 }
 
 impl App {
+    fn save_state(&self) {
+        let contents = format!(
+            "fish={}\nambience={}\nscale={}\nleaves={}\nflowers={}\nduckweed={}\nbutterflies={}\n",
+            self.school.count,
+            self.weather.name(),
+            self.renderer.scale(),
+            self.lotus.visible_leaves(),
+            self.lotus.visible_flowers(),
+            self.duckweed.visible_patches(),
+            self.butterflies.visible(),
+        );
+        let path = state_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, contents);
+    }
+
     fn build_frame(&mut self, time: f32) {
         self.rebuild_fish();
         self.lotus.update(time, &mut self.lotus_frame);
@@ -338,7 +362,7 @@ impl App {
                     Ok(count) => {
                         let count = count.clamp(1, sim::MAX_FISH);
                         self.school.count = count;
-                        save_state(count, self.weather.name(), self.renderer.scale());
+                        self.save_state();
                         format!("fish {count}\n")
                     }
                     Err(_) => format!(
@@ -355,7 +379,7 @@ impl App {
                 ),
                 Some(name) => match self.weather.set(name) {
                     Ok(()) => {
-                        save_state(self.school.count, self.weather.name(), self.renderer.scale());
+                        self.save_state();
                         format!("ambience {name}\n")
                     }
                     Err(error) => format!("nagomi: {error}\n"),
@@ -366,11 +390,7 @@ impl App {
                 Some(value) => match value.parse::<u32>() {
                     Ok(scale) => match self.renderer.set_scale(scale) {
                         Ok(()) => {
-                            save_state(
-                                self.school.count,
-                                self.weather.name(),
-                                self.renderer.scale(),
-                            );
+                            self.save_state();
                             format!("scale {scale}\n")
                         }
                         Err(error) => format!("nagomi: {error}\n"),
@@ -378,15 +398,63 @@ impl App {
                     Err(_) => "nagomi: scale needs a number between 1 and 4\n".to_string(),
                 },
             },
+            "leaves" => match words.next() {
+                None => format!("leaves {}\n", self.lotus.visible_leaves()),
+                Some(value) => match value.parse::<usize>() {
+                    Ok(count) => {
+                        let count = self.lotus.set_visible_leaves(count);
+                        self.save_state();
+                        format!("leaves {count}\n")
+                    }
+                    Err(_) => "nagomi: leaves needs a number\n".to_string(),
+                },
+            },
+            "flowers" => match words.next() {
+                None => format!("flowers {}\n", self.lotus.visible_flowers()),
+                Some(value) => match value.parse::<usize>() {
+                    Ok(count) => {
+                        let count = self.lotus.set_visible_flowers(count);
+                        self.save_state();
+                        format!("flowers {count}\n")
+                    }
+                    Err(_) => "nagomi: flowers needs a number\n".to_string(),
+                },
+            },
+            "duckweed" => match words.next() {
+                None => format!("duckweed {}\n", self.duckweed.visible_patches()),
+                Some(value) => match value.parse::<usize>() {
+                    Ok(count) => {
+                        let count = self.duckweed.set_visible_patches(count);
+                        self.save_state();
+                        format!("duckweed {count}\n")
+                    }
+                    Err(_) => "nagomi: duckweed needs a number\n".to_string(),
+                },
+            },
+            "butterflies" => match words.next() {
+                None => format!("butterflies {}\n", self.butterflies.visible()),
+                Some(value) => match value.parse::<usize>() {
+                    Ok(count) => {
+                        let count = self.butterflies.set_visible(count);
+                        self.save_state();
+                        format!("butterflies {count}\n")
+                    }
+                    Err(_) => "nagomi: butterflies needs a number\n".to_string(),
+                },
+            },
             "scatter" => {
                 self.school.scatter();
                 "ok\n".to_string()
             }
             "status" => format!(
-                "fish {}\nambience {}\nscale {}\npid {}\nuptime {:.0}s\n",
+                "fish {}\nambience {}\nscale {}\nleaves {} flowers {} duckweed {} butterflies {}\npid {}\nuptime {:.0}s\n",
                 self.school.count,
                 self.weather.name(),
                 self.renderer.scale(),
+                self.lotus.visible_leaves(),
+                self.lotus.visible_flowers(),
+                self.duckweed.visible_patches(),
+                self.butterflies.visible(),
                 std::process::id(),
                 self.started.elapsed().as_secs_f32()
             ),
@@ -472,8 +540,8 @@ fn main() -> Result<()> {
         })?
     };
 
-    let (saved_fish, saved_ambience, saved_scale) = load_state();
-    let initial_scale = saved_scale
+    let saved = load_state();
+    let initial_scale = saved.scale
         .or_else(|| {
             std::env::var("NAGOMI_SCALE")
                 .ok()
@@ -486,16 +554,32 @@ fn main() -> Result<()> {
     let config = FishConfig::default();
     let mut school = School::new(config);
     let mut weather = weather::Weather::new();
-    if let Some(name) = saved_ambience {
-        let _ = weather.set(&name);
+    if let Some(name) = &saved.ambience {
+        let _ = weather.set(name);
     }
     if let Ok(name) = std::env::var("NAGOMI_WEATHER") {
         if weather.set(&name).is_ok() {
             weather.snap();
         }
     }
-    if let Some(count) = saved_fish {
+    if let Some(count) = saved.fish {
         school.count = count.clamp(1, sim::MAX_FISH);
+    }
+
+    let mut lotus = lotus::Lotus::new();
+    if let Some(count) = saved.leaves {
+        lotus.set_visible_leaves(count);
+    }
+    if let Some(count) = saved.flowers {
+        lotus.set_visible_flowers(count);
+    }
+    let mut duckweed = duckweed::Duckweed::new();
+    if let Some(count) = saved.duckweed {
+        duckweed.set_visible_patches(count);
+    }
+    let mut butterflies = butterflies::Butterflies::new();
+    if let Some(count) = saved.butterflies {
+        butterflies.set_visible(count);
     }
 
     let mut app = App {
@@ -515,12 +599,12 @@ fn main() -> Result<()> {
         dump_path: dump_path.clone(),
         school,
         draw: KoiDraw::new(),
-        lotus: lotus::Lotus::new(),
+        lotus,
         lotus_frame: lotus::LotusFrame::new(),
-        duckweed: duckweed::Duckweed::new(),
+        duckweed,
         duckweed_frame: duckweed::DuckweedFrame::new(),
         tiny_frame: tiny::TinyFrame::new(),
-        butterflies: butterflies::Butterflies::new(),
+        butterflies,
         butterfly_frame: butterflies::ButterflyFrame::new(),
         weather,
         config,

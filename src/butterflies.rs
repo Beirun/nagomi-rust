@@ -86,6 +86,7 @@ impl Butterfly {
 
 pub struct Butterflies {
     butterflies: Vec<Butterfly>,
+    visible: usize,
 }
 
 pub struct ButterflyFrame {
@@ -127,11 +128,27 @@ impl Butterflies {
             butterfly.turn_target = butterfly.range((-TURN_ANGLE, TURN_ANGLE));
             butterflies.push(butterfly);
         }
-        Self { butterflies }
+        Self {
+            butterflies,
+            visible: VISIBLE_COUNT,
+        }
+    }
+
+    pub fn visible(&self) -> usize {
+        self.visible
+    }
+
+    pub fn max_butterflies(&self) -> usize {
+        self.butterflies.len()
+    }
+
+    pub fn set_visible(&mut self, count: usize) -> usize {
+        self.visible = count.min(self.butterflies.len());
+        self.visible
     }
 
     pub fn update(&mut self, dt: f32, time: f32) {
-        for index in 0..self.butterflies.len().min(VISIBLE_COUNT) {
+        for index in 0..self.butterflies.len().min(self.visible) {
             let mut b = self.butterflies[index];
 
             b.turn_timer -= dt;
@@ -185,7 +202,7 @@ impl Butterflies {
         frame.shadow.clear();
         frame.shapes.clear();
 
-        for butterfly in self.butterflies.iter().take(VISIBLE_COUNT) {
+        for butterfly in self.butterflies.iter().take(self.visible) {
             let palette = &PALETTES[butterfly.palette % PALETTES.len()];
             let forward = vec2(butterfly.heading.cos(), butterfly.heading.sin());
             let side = forward.perpendicular();

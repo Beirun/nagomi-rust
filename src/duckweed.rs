@@ -92,6 +92,7 @@ impl DuckweedFrame {
 
 pub struct Duckweed {
     leaves: Vec<Vec<LeafShape>>,
+    visible_patches: usize,
 }
 
 impl Duckweed {
@@ -118,7 +119,23 @@ impl Duckweed {
             }
             leaves.push(shapes);
         }
-        Self { leaves }
+        Self {
+            leaves,
+            visible_patches: VISIBLE_PATCH_COUNT,
+        }
+    }
+
+    pub fn visible_patches(&self) -> usize {
+        self.visible_patches
+    }
+
+    pub fn max_patches(&self) -> usize {
+        self.leaves.len()
+    }
+
+    pub fn set_visible_patches(&mut self, count: usize) -> usize {
+        self.visible_patches = count.min(self.leaves.len());
+        self.visible_patches
     }
 
     pub fn update(&self, time: f32, frame: &mut DuckweedFrame) {
@@ -126,7 +143,11 @@ impl Duckweed {
         frame.leaves.clear();
         frame.highlights.clear();
 
-        for (patch_index, patch) in PATCHES.iter().enumerate().take(VISIBLE_PATCH_COUNT) {
+        for (patch_index, patch) in PATCHES
+            .iter()
+            .enumerate()
+            .take(self.visible_patches)
+        {
             let palette = &PALETTES[patch.palette % PALETTES.len()];
             let center = vec2(
                 patch.position.x + (time * 0.1 + patch.phase).sin() * DRIFT_X,

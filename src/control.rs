@@ -30,6 +30,10 @@ usage: nagomi <command> [args]
   weather <name>     switch ambience: {}
   ambience <name>    alias for weather
   scale [1-4]        show or set render resolution; 1 = 480x270 pixel art, 4 = native
+  leaves [0-19]      show or set the number of lotus leaves
+  flowers [0-4]      show or set the number of lotus flowers
+  duckweed [0-8]     show or set the number of duckweed patches
+  butterflies [0-4]  show or set the number of butterflies
   scatter            startle the koi
   status             fish count, ambience, pid, uptime
   help               this text

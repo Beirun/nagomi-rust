@@ -57,8 +57,12 @@ nagomi fish 20         # set it, 1 to 48
 nagomi weather         # current ambience and the available names
 nagomi weather rain    # sunny, deep-clear, overcast, mist, sunset, moonlight, rain
 nagomi scale 4         # render resolution, 1 (480x270) to 4 (native)
+nagomi leaves 12       # lotus leaves, 0-19
+nagomi flowers 3       # lotus flowers, 0-4
+nagomi duckweed 5      # duckweed patches, 0-8
+nagomi butterflies 2   # butterflies, 0-4
 nagomi scatter         # startle the koi
-nagomi status          # fish, ambience, scale, pid, uptime
+nagomi status          # fish, ambience, scale, scene counts, pid, uptime
 ```
 
 Fish count and ambience are saved to `$XDG_STATE_HOME/nagomi/state` and restored on the next start. The `nagomi` name is just a convenience symlink to the binary.

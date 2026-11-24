@@ -187,6 +187,8 @@ impl LotusFrame {
 pub struct Lotus {
     leaves: Vec<LocalLeaf>,
     flowers: Vec<LocalFlower>,
+    visible_leaves: usize,
+    visible_flowers: usize,
 }
 
 impl Lotus {
@@ -305,7 +307,38 @@ impl Lotus {
             flowers.push(LocalFlower { triangles });
         }
 
-        Self { leaves, flowers }
+        Self {
+            leaves,
+            flowers,
+            visible_leaves: VISIBLE_LEAF_COUNT,
+            visible_flowers: VISIBLE_FLOWER_COUNT,
+        }
+    }
+
+    pub fn visible_leaves(&self) -> usize {
+        self.visible_leaves
+    }
+
+    pub fn visible_flowers(&self) -> usize {
+        self.visible_flowers
+    }
+
+    pub fn max_leaves(&self) -> usize {
+        self.leaves.len()
+    }
+
+    pub fn max_flowers(&self) -> usize {
+        self.flowers.len()
+    }
+
+    pub fn set_visible_leaves(&mut self, count: usize) -> usize {
+        self.visible_leaves = count.min(self.leaves.len());
+        self.visible_leaves
+    }
+
+    pub fn set_visible_flowers(&mut self, count: usize) -> usize {
+        self.visible_flowers = count.min(self.flowers.len());
+        self.visible_flowers
     }
 
     pub fn update(&self, time: f32, frame: &mut LotusFrame) {
@@ -316,7 +349,7 @@ impl Lotus {
 
         let mut centers = [Vec2::default(); LEAF_PLACEMENTS.len()];
         for (index, leaf) in self.leaves.iter().enumerate() {
-            if index >= VISIBLE_LEAF_COUNT {
+            if index >= self.visible_leaves {
                 continue;
             }
             let center = vec2(
@@ -356,10 +389,13 @@ impl Lotus {
         }
 
         for (index, flower) in self.flowers.iter().enumerate() {
-            if index >= VISIBLE_FLOWER_COUNT {
+            if index >= self.visible_flowers {
                 continue;
             }
             let placement = &FLOWER_PLACEMENTS[index];
+            if placement.leaf_index >= self.visible_leaves {
+                continue;
+            }
             let Some(leaf_center) = centers.get(placement.leaf_index) else {
                 continue;
             };
