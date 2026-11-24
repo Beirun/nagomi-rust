@@ -2,7 +2,7 @@
 name = "nagomi-native"
 version = "0.1.0"
 edition = "2021"
-description = "Native Rust port of the nagomi koi pond, as a live wallpaper on Hyprland and Windows"
+description = "Native Rust port of the nagomi koi pond, as a live wallpaper"
 license-file = "LICENSE"
 repository = "https://github.com/Beirun/nagomi-rust"
 readme = "README.md"
