@@ -2,7 +2,7 @@
 
 A native Rust port of [nagomi](https://github.com/msk1039/nagomi), the procedural koi pond by [msk1039](https://github.com/msk1039), rendered as a Wayland wallpaper. The pond bed, water currents, ripples, koi, lotus, duckweed, tiny fish, butterflies, and weather presets come from that TypeScript project. This version draws them with wgpu straight into a background-layer surface, so there is no browser or WebView involved.
 
-The pond renders at the original 480x270 pixel grid and is nearest-upscaled to the display, which keeps the pixel-art look crisp.
+The scene is laid out on the original 480x270 coordinate grid but rendered at the display's native resolution, so shapes come out smooth instead of pixelated. Use `nagomi scale 1-4` to trade quality for GPU/bandwidth: 1 is the original 480x270 pixel-art look, 4 is native 1080p and the default. The setting persists across restarts.
 
 ## Requirements
 
@@ -48,8 +48,9 @@ nagomi fish            # show the koi count
 nagomi fish 20         # set it, 1 to 48
 nagomi weather         # current ambience and the available names
 nagomi weather rain    # sunny, deep-clear, overcast, mist, sunset, moonlight, rain
+nagomi scale 4         # render resolution, 1 (480x270) to 4 (native)
 nagomi scatter         # startle the koi
-nagomi status          # fish, ambience, pid, uptime
+nagomi status          # fish, ambience, scale, pid, uptime
 ```
 
 Fish count and ambience are saved to `$XDG_STATE_HOME/nagomi/state` and restored on the next start. The `nagomi` name is just a convenience symlink to the binary.

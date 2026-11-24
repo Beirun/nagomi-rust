@@ -29,6 +29,7 @@ usage: nagomi <command> [args]
   weather            show the current ambience and the available names
   weather <name>     switch ambience: {}
   ambience <name>    alias for weather
+  scale [1-4]        show or set render resolution; 1 = 480x270 pixel art, 4 = native
   scatter            startle the koi
   status             fish count, ambience, pid, uptime
   help               this text

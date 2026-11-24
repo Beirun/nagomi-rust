@@ -57,28 +57,34 @@ fn state_path() -> PathBuf {
     base.join("nagomi/state")
 }
 
-fn load_state() -> (Option<usize>, Option<String>) {
+fn load_state() -> (Option<usize>, Option<String>, Option<u32>) {
     let Ok(text) = std::fs::read_to_string(state_path()) else {
-        return (None, None);
+        return (None, None, None);
     };
     let mut fish = None;
     let mut ambience = None;
+    let mut scale = None;
     for line in text.lines() {
         if let Some(value) = line.strip_prefix("fish=") {
             fish = value.trim().parse::<usize>().ok();
         } else if let Some(value) = line.strip_prefix("ambience=") {
             ambience = Some(value.trim().to_string());
+        } else if let Some(value) = line.strip_prefix("scale=") {
+            scale = value.trim().parse::<u32>().ok();
         }
     }
-    (fish, ambience)
+    (fish, ambience, scale)
 }
 
-fn save_state(fish: usize, ambience: &str) {
+fn save_state(fish: usize, ambience: &str, scale: u32) {
     let path = state_path();
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(path, format!("fish={fish}\nambience={ambience}\n"));
+    let _ = std::fs::write(
+        path,
+        format!("fish={fish}\nambience={ambience}\nscale={scale}\n"),
+    );
 }
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(33);
@@ -324,7 +330,7 @@ impl App {
                     Ok(count) => {
                         let count = count.clamp(1, sim::MAX_FISH);
                         self.school.count = count;
-                        save_state(count, self.weather.name());
+                        save_state(count, self.weather.name(), self.renderer.scale());
                         format!("fish {count}\n")
                     }
                     Err(_) => format!(
@@ -341,10 +347,27 @@ impl App {
                 ),
                 Some(name) => match self.weather.set(name) {
                     Ok(()) => {
-                        save_state(self.school.count, self.weather.name());
+                        save_state(self.school.count, self.weather.name(), self.renderer.scale());
                         format!("ambience {name}\n")
                     }
                     Err(error) => format!("nagomi: {error}\n"),
+                },
+            },
+            "scale" => match words.next() {
+                None => format!("scale {}\n", self.renderer.scale()),
+                Some(value) => match value.parse::<u32>() {
+                    Ok(scale) => match self.renderer.set_scale(scale) {
+                        Ok(()) => {
+                            save_state(
+                                self.school.count,
+                                self.weather.name(),
+                                self.renderer.scale(),
+                            );
+                            format!("scale {scale}\n")
+                        }
+                        Err(error) => format!("nagomi: {error}\n"),
+                    },
+                    Err(_) => "nagomi: scale needs a number between 1 and 4\n".to_string(),
                 },
             },
             "scatter" => {
@@ -352,9 +375,10 @@ impl App {
                 "ok\n".to_string()
             }
             "status" => format!(
-                "fish {}\nambience {}\npid {}\nuptime {:.0}s\n",
+                "fish {}\nambience {}\nscale {}\npid {}\nuptime {:.0}s\n",
                 self.school.count,
                 self.weather.name(),
+                self.renderer.scale(),
                 std::process::id(),
                 self.started.elapsed().as_secs_f32()
             ),
@@ -387,6 +411,14 @@ fn main() -> Result<()> {
     }
     if !args.is_empty() {
         std::process::exit(control::run_client(&args));
+    }
+
+    let dump_path = std::env::var("NAGOMI_DUMP").ok();
+    if dump_path.is_none()
+        && std::os::unix::net::UnixStream::connect(control::socket_path()).is_ok()
+    {
+        eprintln!("nagomi: wallpaper already running");
+        return Ok(());
     }
 
     let conn = Connection::connect_to_env()?;
@@ -432,11 +464,20 @@ fn main() -> Result<()> {
         })?
     };
 
-    let renderer = pollster::block_on(gpu::Renderer::new(instance, wgpu_surface));
+    let (saved_fish, saved_ambience, saved_scale) = load_state();
+    let initial_scale = saved_scale
+        .or_else(|| {
+            std::env::var("NAGOMI_SCALE")
+                .ok()
+                .and_then(|value| value.parse::<u32>().ok())
+        })
+        .unwrap_or(4)
+        .clamp(1, 4);
+    let renderer =
+        pollster::block_on(gpu::Renderer::new(instance, wgpu_surface, initial_scale));
     let config = FishConfig::default();
     let mut school = School::new(config);
     let mut weather = weather::Weather::new();
-    let (saved_fish, saved_ambience) = load_state();
     if let Some(name) = saved_ambience {
         let _ = weather.set(&name);
     }
@@ -458,7 +499,7 @@ fn main() -> Result<()> {
         height: 0,
         configured: false,
         exit: false,
-        dump_path: std::env::var("NAGOMI_DUMP").ok(),
+        dump_path: dump_path.clone(),
         school,
         draw: KoiDraw::new(),
         lotus: lotus::Lotus::new(),
@@ -479,18 +520,20 @@ fn main() -> Result<()> {
     let mut event_loop: EventLoop<App> = EventLoop::try_new()?;
     WaylandSource::new(conn.clone(), event_queue).insert(event_loop.handle())?;
 
-    let listener = control::listen()?;
-    event_loop.handle().insert_source(
-        calloop::generic::Generic::new(
-            listener,
-            calloop::Interest::READ,
-            calloop::Mode::Level,
-        ),
-        |_, listener, app: &mut App| {
-            app.handle_commands(listener);
-            Ok(calloop::PostAction::Continue)
-        },
-    )?;
+    if dump_path.is_none() {
+        let listener = control::listen()?;
+        event_loop.handle().insert_source(
+            calloop::generic::Generic::new(
+                listener,
+                calloop::Interest::READ,
+                calloop::Mode::Level,
+            ),
+            |_, listener, app: &mut App| {
+                app.handle_commands(listener);
+                Ok(calloop::PostAction::Continue)
+            },
+        )?;
+    }
 
     let mut last_frame = Instant::now();
     loop {

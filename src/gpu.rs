@@ -93,10 +93,6 @@ struct Target {
 }
 
 impl Target {
-    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, label: &str) -> Self {
-        Self::new_sized(device, format, POND_WIDTH, POND_HEIGHT, label)
-    }
-
     fn new_sized(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -127,6 +123,122 @@ impl Target {
     }
 }
 
+
+fn make_targets(
+    device: &wgpu::Device,
+    scale: u32,
+) -> (u32, u32, Target, Target, Target) {
+    let width = POND_WIDTH * scale;
+    let height = POND_HEIGHT * scale;
+    let underwater = Target::new_sized(
+        device,
+        wgpu::TextureFormat::Rgba8Unorm,
+        width,
+        height,
+        "underwater",
+    );
+    let composite = Target::new_sized(
+        device,
+        wgpu::TextureFormat::Rgba8Unorm,
+        width,
+        height,
+        "composite",
+    );
+    let disturbance = Target::new_sized(
+        device,
+        wgpu::TextureFormat::Rg16Float,
+        width.div_ceil(2),
+        height.div_ceil(2),
+        "disturbance",
+    );
+    (width, height, underwater, composite, disturbance)
+}
+
+fn make_samplers(device: &wgpu::Device, scale: u32) -> (wgpu::Sampler, wgpu::Sampler) {
+    let filter = if scale > 1 {
+        wgpu::FilterMode::Linear
+    } else {
+        wgpu::FilterMode::Nearest
+    };
+    let present = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("present"),
+        mag_filter: filter,
+        min_filter: filter,
+        ..Default::default()
+    });
+    let linear = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("linear"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    (present, linear)
+}
+
+fn make_water_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    underwater: &Target,
+    disturbance: &Target,
+    sampler: &wgpu::Sampler,
+    uniforms: &wgpu::Buffer,
+    ripples: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("water bind group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&underwater.view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&disturbance.view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: uniforms.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: ripples.as_entire_binding(),
+            },
+        ],
+    })
+}
+
+fn make_weather_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    composite: &Target,
+    sampler: &wgpu::Sampler,
+    uniforms: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("weather bind group"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&composite.view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: uniforms.as_entire_binding(),
+            },
+        ],
+    })
+}
+
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -135,10 +247,13 @@ pub struct Renderer {
     surface_config: Option<wgpu::SurfaceConfiguration>,
     size: (u32, u32),
 
+    scale: u32,
+    render_width: u32,
+    render_height: u32,
     underwater: Target,
     composite: Target,
     disturbance: Target,
-    _sampler: wgpu::Sampler,
+    present_sampler: wgpu::Sampler,
     linear_sampler: wgpu::Sampler,
     _bed_pipeline: wgpu::RenderPipeline,
     _bed_uniforms: wgpu::Buffer,
@@ -146,7 +261,8 @@ pub struct Renderer {
     _water_pipeline: wgpu::RenderPipeline,
     _water_uniforms: wgpu::Buffer,
     _ripple_buffer: wgpu::Buffer,
-    _water_bind_group: wgpu::BindGroup,
+    water_layout: wgpu::BindGroupLayout,
+    water_bind_group: wgpu::BindGroup,
     fish_pipeline: wgpu::RenderPipeline,
     fish_shadow_pipeline: wgpu::RenderPipeline,
     fish_uniforms: wgpu::Buffer,
@@ -183,13 +299,18 @@ pub struct Renderer {
     last_time: f32,
     _weather_pipeline: wgpu::RenderPipeline,
     _weather_uniforms: wgpu::Buffer,
-    _weather_bind_group: wgpu::BindGroup,
+    weather_layout: wgpu::BindGroupLayout,
+    weather_bind_group: wgpu::BindGroup,
 
     start: Instant,
 }
 
 impl Renderer {
-    pub async fn new(instance: wgpu::Instance, surface: wgpu::Surface<'static>) -> Self {
+    pub async fn new(
+        instance: wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        initial_scale: u32,
+    ) -> Self {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 compatible_surface: Some(&surface),
@@ -278,27 +399,11 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let underwater = Target::new(&device, wgpu::TextureFormat::Rgba8Unorm, "underwater");
-        let composite = Target::new(&device, wgpu::TextureFormat::Rgba8Unorm, "composite");
-        let disturbance = Target::new_sized(
-            &device,
-            wgpu::TextureFormat::Rg16Float,
-            POND_WIDTH.div_ceil(2),
-            POND_HEIGHT.div_ceil(2),
-            "disturbance",
-        );
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("nearest"),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-        let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("linear"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
+        let scale = initial_scale.clamp(1, 4);
+        let (render_width, render_height, underwater, composite, disturbance) =
+            make_targets(&device, scale);
+        log::info!("render scale {scale}: {render_width}x{render_height}");
+        let (sampler, linear_sampler) = make_samplers(&device, scale);
 
         let bed_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("bed layout"),
@@ -375,24 +480,13 @@ impl Renderer {
                 },
             ],
         });
-        let weather_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("weather bind group"),
-            layout: &weather_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&composite.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: weather_uniforms.as_entire_binding(),
-                },
-            ],
-        });
+        let weather_bind_group = make_weather_bind_group(
+            &device,
+            &weather_layout,
+            &composite,
+            &sampler,
+            &weather_uniforms,
+        );
 
         let fullscreen_pipeline = |module: &wgpu::ShaderModule,
                                    layout: &wgpu::BindGroupLayout,
@@ -870,32 +964,15 @@ impl Renderer {
                 },
             ],
         });
-        let water_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("water bind group"),
-            layout: &water_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&underwater.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&disturbance.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&linear_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: water_uniforms.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: ripple_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let water_bind_group = make_water_bind_group(
+            &device,
+            &water_layout,
+            &underwater,
+            &disturbance,
+            &linear_sampler,
+            &water_uniforms,
+            &ripple_buffer,
+        );
         let water_pipeline = fullscreen_pipeline(
             &water_module,
             &water_layout,
@@ -919,10 +996,13 @@ impl Renderer {
             surface_format,
             surface_config: None,
             size: (0, 0),
+            scale,
+            render_width,
+            render_height,
             underwater,
             composite,
             disturbance,
-            _sampler: sampler,
+            present_sampler: sampler,
             linear_sampler,
             _bed_pipeline: bed_pipeline,
             _bed_uniforms: bed_uniforms,
@@ -930,7 +1010,8 @@ impl Renderer {
             _water_pipeline: water_pipeline,
             _water_uniforms: water_uniforms,
             _ripple_buffer: ripple_buffer,
-            _water_bind_group: water_bind_group,
+            water_layout,
+            water_bind_group,
             fish_pipeline,
             fish_shadow_pipeline,
             fish_uniforms,
@@ -967,7 +1048,8 @@ impl Renderer {
             last_time: 0.0,
             _weather_pipeline: weather_pipeline,
             _weather_uniforms: weather_uniforms,
-            _weather_bind_group: weather_bind_group,
+            weather_layout,
+            weather_bind_group,
             start: Instant::now(),
         }
     }
@@ -990,6 +1072,51 @@ impl Renderer {
         };
         self.surface.configure(&self.device, &config);
         self.surface_config = Some(config);
+    }
+
+    pub fn scale(&self) -> u32 {
+        self.scale
+    }
+
+    pub fn set_scale(&mut self, scale: u32) -> Result<(), String> {
+        if !(1..=4).contains(&scale) {
+            return Err("scale must be between 1 and 4".to_string());
+        }
+        if scale == self.scale {
+            return Ok(());
+        }
+        let (width, height, underwater, composite, disturbance) =
+            make_targets(&self.device, scale);
+        let (present_sampler, linear_sampler) = make_samplers(&self.device, scale);
+        let water_bind_group = make_water_bind_group(
+            &self.device,
+            &self.water_layout,
+            &underwater,
+            &disturbance,
+            &linear_sampler,
+            &self._water_uniforms,
+            &self._ripple_buffer,
+        );
+        let weather_bind_group = make_weather_bind_group(
+            &self.device,
+            &self.weather_layout,
+            &composite,
+            &present_sampler,
+            &self._weather_uniforms,
+        );
+
+        self.scale = scale;
+        self.render_width = width;
+        self.render_height = height;
+        self.underwater = underwater;
+        self.composite = composite;
+        self.disturbance = disturbance;
+        self.present_sampler = present_sampler;
+        self.linear_sampler = linear_sampler;
+        self.water_bind_group = water_bind_group;
+        self.weather_bind_group = weather_bind_group;
+        log::info!("render scale {scale}: {width}x{height}");
+        Ok(())
     }
 
     fn encode_pond(
@@ -1341,7 +1468,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self._water_pipeline);
-            pass.set_bind_group(0, &self._water_bind_group, &[]);
+            pass.set_bind_group(0, &self.water_bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
 
@@ -1507,11 +1634,13 @@ impl Renderer {
         surface: SurfaceFrame<'_>,
         weather: &WeatherParams,
     ) -> anyhow::Result<()> {
-        let row_bytes = POND_WIDTH * 4;
+        let width = self.render_width;
+        let height = self.render_height;
+        let row_bytes = width * 4;
         let padded_row = row_bytes.div_ceil(256) * 256;
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("dump buffer"),
-            size: (padded_row * POND_HEIGHT) as u64,
+            size: (padded_row * height) as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -1530,7 +1659,7 @@ impl Renderer {
         );
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: if std::env::var("NAGOMI_DUMP_UNDERWATER").is_ok() { &self.underwater.texture } else { &self.composite.texture },
+                texture: &self.composite.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -1540,12 +1669,12 @@ impl Renderer {
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_row),
-                    rows_per_image: Some(POND_HEIGHT),
+                    rows_per_image: Some(height),
                 },
             },
             wgpu::Extent3d {
-                width: POND_WIDTH,
-                height: POND_HEIGHT,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
         );
@@ -1560,11 +1689,11 @@ impl Renderer {
         receiver.recv()??;
 
         let data = slice.get_mapped_range()?;
-        let mut ppm = Vec::with_capacity((POND_WIDTH * POND_HEIGHT * 3) as usize + 32);
-        ppm.extend_from_slice(format!("P6\n{POND_WIDTH} {POND_HEIGHT}\n255\n").as_bytes());
-        for row in 0..POND_HEIGHT {
+        let mut ppm = Vec::with_capacity((width * height * 3) as usize + 32);
+        ppm.extend_from_slice(format!("P6\n{width} {height}\n255\n").as_bytes());
+        for row in 0..height {
             let start = (row * padded_row) as usize;
-            for column in 0..POND_WIDTH {
+            for column in 0..width {
                 let pixel = &data[start + column as usize * 4..][..3];
                 ppm.extend_from_slice(pixel);
             }
@@ -1652,7 +1781,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self._weather_pipeline);
-            pass.set_bind_group(0, &self._weather_bind_group, &[]);
+            pass.set_bind_group(0, &self.weather_bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
 
