@@ -34,7 +34,6 @@ usage: nagomi <command> [args]
   flowers [0-16]      show or set the number of lotus flowers
   duckweed [0-16]     show or set the number of duckweed patches
   butterflies [0-16]  show or set the number of butterflies
-  skin [name]        show or set the sprite skin: off, creatures, or a local folder
   scatter            startle the koi
   status             fish count, ambience, pid, uptime
   help               this text

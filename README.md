@@ -12,14 +12,6 @@ The scene is laid out on the original 480x270 coordinate grid but rendered at th
 
 All three are rendered at scale 4 (native 1920x1080).
 
-## Skins
-
-`nagomi skin creatures` swaps the koi for a built-in set of pond critters (axolotl, turtle, frog, duck, puffer, newt). They are drawn procedurally, so the repository ships no third-party art.
-
-To use your own sprites, create `~/.local/share/nagomi/skins/<name>/` with `koi1.png` through `koi6.png`, one per koi family, and optionally `leaf1.png` and `leaf2.png` for the lotus pads. Sprites should be transparent PNGs facing right. Then run `nagomi skin <name>`; `nagomi skin off` goes back to the koi.
-
-Anything in that folder is local to your machine and is not covered by this repository. Some sprite sets, including Pokémon, are copyrighted by their owners; supply only art you have the right to use.
-
 ## Requirements
 
 - Linux with Wayland and a layer-shell compositor. Developed on Hyprland.
@@ -69,7 +61,6 @@ nagomi leaves 12       # lotus leaves, 0-32
 nagomi flowers 3       # lotus flowers, 0-16
 nagomi duckweed 5      # duckweed patches, 0-16
 nagomi butterflies 2   # butterflies, 0-16
-nagomi skin creatures  # built-in critters, or a folder from ~/.local/share/nagomi/skins
 nagomi scatter         # startle the koi
 nagomi status          # fish, ambience, scale, scene counts, pid, uptime
 ```

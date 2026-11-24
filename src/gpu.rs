@@ -3,8 +3,7 @@ use std::time::Instant;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use crate::fish::{DisturbanceVertex, SpriteVertex, Vertex};
-use crate::skin::{DecodedSprite, Skin};
+use crate::fish::{DisturbanceVertex, Vertex};
 use crate::weather::WeatherParams;
 
 pub struct FishFrame<'a> {
@@ -12,11 +11,6 @@ pub struct FishFrame<'a> {
     pub body: &'a [Vertex],
     pub shadow: &'a [Vertex],
     pub disturbance: &'a [DisturbanceVertex],
-}
-
-pub struct SpriteFrame<'a> {
-    pub koi: &'a [Vec<SpriteVertex>],
-    pub leaves: &'a [Vec<SpriteVertex>],
 }
 
 pub struct SurfaceFrame<'a> {
@@ -91,13 +85,6 @@ struct DisturbanceUniforms {
     wave_speed: f32,
     pad0: f32,
     pad1: f32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct SpriteUniforms {
-    resolution: [f32; 2],
-    pad: [f32; 2],
 }
 
 struct Target {
@@ -294,14 +281,6 @@ pub struct Renderer {
     lotus_shadow_uniforms: wgpu::Buffer,
     lotus_shadow_bind_group: wgpu::BindGroup,
     line_pipeline: wgpu::RenderPipeline,
-    sprite_pipeline: wgpu::RenderPipeline,
-    sprite_texture_layout: wgpu::BindGroupLayout,
-    _sprite_uniforms: wgpu::Buffer,
-    sprite_uniform_group: wgpu::BindGroup,
-    koi_sprite_buffers: Vec<wgpu::Buffer>,
-    leaf_sprite_buffers: Vec<wgpu::Buffer>,
-    koi_sprite_groups: Vec<Option<wgpu::BindGroup>>,
-    leaf_sprite_groups: Vec<Option<wgpu::BindGroup>>,
     duckweed_shadow_buffer: wgpu::Buffer,
     duckweed_leaf_buffer: wgpu::Buffer,
     duckweed_highlight_buffer: wgpu::Buffer,
@@ -827,110 +806,6 @@ impl Renderer {
             cache: None,
         });
 
-        let sprite_module = shader(include_str!("shaders/sprite.wgsl").to_string(), "sprite");
-        let sprite_texture_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("sprite texture layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
-        let sprite_uniform_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("sprite uniform layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-        let sprite_uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("sprite uniforms"),
-            contents: bytemuck::bytes_of(&SpriteUniforms {
-                resolution: [POND_WIDTH as f32, POND_HEIGHT as f32],
-                pad: [0.0, 0.0],
-            }),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let sprite_uniform_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("sprite uniform group"),
-            layout: &sprite_uniform_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: sprite_uniforms.as_entire_binding(),
-            }],
-        });
-        let sprite_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("sprite pipeline layout"),
-                bind_group_layouts: &[Some(&sprite_texture_layout), Some(&sprite_uniform_layout)],
-                immediate_size: 0,
-            });
-        let sprite_vertex_buffers = [Some(SpriteVertex::LAYOUT)];
-        let sprite_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("sprite"),
-            layout: Some(&sprite_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &sprite_module,
-                entry_point: Some("vs_main"),
-                buffers: &sprite_vertex_buffers,
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &sprite_module,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        let mut koi_sprite_buffers = Vec::new();
-        let mut leaf_sprite_buffers = Vec::new();
-        for family in 0..6 {
-            koi_sprite_buffers.push(vertex_buffer(
-                &format!("koi sprite {family}"),
-                256 * std::mem::size_of::<SpriteVertex>() as u64,
-            ));
-        }
-        for palette in 0..2 {
-            leaf_sprite_buffers.push(vertex_buffer(
-                &format!("leaf sprite {palette}"),
-                256 * std::mem::size_of::<SpriteVertex>() as u64,
-            ));
-        }
-
         let disturbance_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("disturbance pipeline layout"),
@@ -1140,14 +1015,6 @@ impl Renderer {
             lotus_shadow_uniforms,
             lotus_shadow_bind_group,
             line_pipeline,
-            sprite_pipeline,
-            sprite_texture_layout,
-            _sprite_uniforms: sprite_uniforms,
-            sprite_uniform_group,
-            koi_sprite_buffers,
-            leaf_sprite_buffers,
-            koi_sprite_groups: (0..6).map(|_| None).collect(),
-            leaf_sprite_groups: (0..2).map(|_| None).collect(),
             duckweed_shadow_buffer,
             duckweed_leaf_buffer,
             duckweed_highlight_buffer,
@@ -1238,98 +1105,6 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn leaf_sprite_flags(&self) -> [bool; 2] {
-        [
-            self.leaf_sprite_groups[0].is_some(),
-            self.leaf_sprite_groups[1].is_some(),
-        ]
-    }
-
-    pub fn has_koi_sprite(&self, family: usize) -> bool {
-        self.koi_sprite_groups
-            .get(family)
-            .is_some_and(Option::is_some)
-    }
-
-    pub fn set_skin(&mut self, skin: &Skin) {
-        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("sprite sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            ..Default::default()
-        });
-        for (index, slot) in skin.koi.iter().enumerate() {
-            self.koi_sprite_groups[index] = slot
-                .as_ref()
-                .and_then(|sprite| self.make_sprite_group(sprite, &sampler));
-        }
-        for (index, slot) in skin.leaf.iter().enumerate() {
-            self.leaf_sprite_groups[index] = slot
-                .as_ref()
-                .and_then(|sprite| self.make_sprite_group(sprite, &sampler));
-        }
-    }
-
-    fn make_sprite_group(
-        &self,
-        sprite: &DecodedSprite,
-        sampler: &wgpu::Sampler,
-    ) -> Option<wgpu::BindGroup> {
-        if sprite.width == 0 || sprite.height == 0 {
-            return None;
-        }
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("sprite texture"),
-            size: wgpu::Extent3d {
-                width: sprite.width,
-                height: sprite.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &sprite.rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(sprite.width * 4),
-                rows_per_image: Some(sprite.height),
-            },
-            wgpu::Extent3d {
-                width: sprite.width,
-                height: sprite.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("sprite bind group"),
-            layout: &self.sprite_texture_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-        }))
-    }
-
     fn encode_pond(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -1338,7 +1113,6 @@ impl Renderer {
         ripple_count: u32,
         fish: FishFrame<'_>,
         surface: SurfaceFrame<'_>,
-        sprites: SpriteFrame<'_>,
         weather: &WeatherParams,
     ) {
         let delta = (time - self.last_time).clamp(0.0, 0.1);
@@ -1509,21 +1283,6 @@ impl Renderer {
             }
         }
 
-        for (family, buffer) in self.koi_sprite_buffers.iter().enumerate() {
-            let vertices = &sprites.koi[family];
-            if !vertices.is_empty() {
-                self.queue
-                    .write_buffer(buffer, 0, bytemuck::cast_slice(vertices));
-            }
-        }
-        for (palette, buffer) in self.leaf_sprite_buffers.iter().enumerate() {
-            let vertices = &sprites.leaves[palette];
-            if !vertices.is_empty() {
-                self.queue
-                    .write_buffer(buffer, 0, bytemuck::cast_slice(vertices));
-            }
-        }
-
         // Pond bed into the underwater buffer.
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1643,35 +1402,6 @@ impl Renderer {
             pass.set_bind_group(0, &self.fish_bind_group, &[]);
             pass.set_vertex_buffer(0, buffer.slice(..));
             pass.draw(0..count as u32, 0..1);
-        }
-
-        for (family, group) in self.koi_sprite_groups.iter().enumerate() {
-            let Some(group) = group else { continue };
-            let vertices = &sprites.koi[family];
-            if vertices.is_empty() {
-                continue;
-            }
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("koi sprites"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.underwater.view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.sprite_pipeline);
-            pass.set_bind_group(0, group, &[]);
-            pass.set_bind_group(1, &self.sprite_uniform_group, &[]);
-            pass.set_vertex_buffer(0, self.koi_sprite_buffers[family].slice(..));
-            pass.draw(0..vertices.len() as u32, 0..1);
         }
 
         for (buffer, vertices) in [
@@ -1850,35 +1580,6 @@ impl Renderer {
             pass.set_vertex_buffer(0, self.lotus_leaf_buffer.slice(..));
             pass.draw(0..surface.leaves.len() as u32, 0..1);
         }
-        for (palette, group) in self.leaf_sprite_groups.iter().enumerate() {
-            let Some(group) = group else { continue };
-            let vertices = &sprites.leaves[palette];
-            if vertices.is_empty() {
-                continue;
-            }
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("leaf sprites"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.composite.view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.sprite_pipeline);
-            pass.set_bind_group(0, group, &[]);
-            pass.set_bind_group(1, &self.sprite_uniform_group, &[]);
-            pass.set_vertex_buffer(0, self.leaf_sprite_buffers[palette].slice(..));
-            pass.draw(0..vertices.len() as u32, 0..1);
-        }
-
         if !surface.veins.is_empty() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("lotus veins"),
@@ -1958,7 +1659,6 @@ impl Renderer {
         ripple_count: u32,
         fish: FishFrame<'_>,
         surface: SurfaceFrame<'_>,
-        sprites: SpriteFrame<'_>,
         weather: &WeatherParams,
     ) -> anyhow::Result<()> {
         let width = self.render_width;
@@ -1989,7 +1689,6 @@ impl Renderer {
             ripple_count,
             fish,
             surface,
-            sprites,
             weather,
         );
         {
@@ -2065,7 +1764,6 @@ impl Renderer {
         ripple_count: u32,
         fish: FishFrame<'_>,
         surface: SurfaceFrame<'_>,
-        sprites: SpriteFrame<'_>,
         weather: &WeatherParams,
     ) {
         if self.surface_config.is_none() {
@@ -2092,7 +1790,6 @@ impl Renderer {
             ripple_count,
             fish,
             surface,
-            sprites,
             weather,
         );
 

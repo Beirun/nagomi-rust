@@ -213,19 +213,11 @@ struct LocalFlower {
     triangles: Vec<Vertex>,
 }
 
-pub struct LeafSprite {
-    pub center: Vec2,
-    pub rotation: f32,
-    pub size: f32,
-    pub palette: usize,
-}
-
 pub struct LotusFrame {
     pub shadow: Vec<Vertex>,
     pub leaves: Vec<Vertex>,
     pub veins: Vec<Vertex>,
     pub flowers: Vec<Vertex>,
-    pub leaf_sprites: Vec<LeafSprite>,
 }
 
 impl LotusFrame {
@@ -235,7 +227,6 @@ impl LotusFrame {
             leaves: Vec::new(),
             veins: Vec::new(),
             flowers: Vec::new(),
-            leaf_sprites: Vec::new(),
         }
     }
 }
@@ -411,12 +402,11 @@ impl Lotus {
         self.visible_flowers
     }
 
-    pub fn update(&self, time: f32, frame: &mut LotusFrame, sprited: [bool; 2]) {
+    pub fn update(&self, time: f32, frame: &mut LotusFrame) {
         frame.shadow.clear();
         frame.leaves.clear();
         frame.veins.clear();
         frame.flowers.clear();
-        frame.leaf_sprites.clear();
 
         let mut centers = vec![Vec2::default(); self.placements.len()];
         for (index, leaf) in self.leaves.iter().enumerate() {
@@ -430,20 +420,6 @@ impl Lotus {
             centers[index] = center;
             let sway = (time * 0.085 + leaf.phase).sin() * ROTATION_AMOUNT;
             let pulse = 1.0 + (time * 0.11 + leaf.phase).sin() * 0.012;
-            let placement = &self.placements[index];
-
-            if sprited[placement.palette % 2] {
-                frame.leaf_sprites.push(LeafSprite {
-                    center,
-                    rotation: sway,
-                    size: placement.radius * RADIUS_SCALE * 2.4 * pulse,
-                    palette: placement.palette % 2,
-                });
-                let shadow_center = center.add(SHADOW_OFFSET.mul(1.02));
-                let radius = placement.radius * RADIUS_SCALE;
-                push_circle(&mut frame.shadow, shadow_center, radius, 14);
-                continue;
-            }
 
             let transform = |local: Vec2, scale: f32, offset: Vec2| {
                 let rotated = vec2(
@@ -495,23 +471,6 @@ impl Lotus {
                 let p = origin.add(rotated);
                 frame.flowers.push(Vertex { position: [p.x, p.y], color: vertex.color });
             }
-        }
-    }
-}
-
-fn push_circle(out: &mut Vec<Vertex>, center: Vec2, radius: f32, segments: usize) {
-    for index in 0..segments {
-        let angle_a = index as f32 / segments as f32 * TAU;
-        let angle_b = (index + 1) as f32 / segments as f32 * TAU;
-        for point in [
-            center,
-            center.add(vec2(angle_a.cos() * radius, angle_a.sin() * radius)),
-            center.add(vec2(angle_b.cos() * radius, angle_b.sin() * radius)),
-        ] {
-            out.push(Vertex {
-                position: [point.x, point.y],
-                color: [1.0, 1.0, 1.0],
-            });
         }
     }
 }
