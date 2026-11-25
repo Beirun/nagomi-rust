@@ -40,20 +40,24 @@ struct LeafPalette {
     center: [f32; 3],
 }
 
+// Upstream paints the lotus meshes through three.js color management, which
+// feeds the palette's sRGB values to the shader as linear ones. Reproducing
+// that means linearizing here: these are the sRGB->linear conversions of the
+// upstream hexes (0x5f9d78 etc.), which is why the leaves read darker.
 const LEAF_PALETTES: [LeafPalette; 2] = [
     LeafPalette {
-        base: rgb(0x5f9d78),
-        light: rgb(0x76aa84),
-        shade: rgb(0x487c66),
-        vein: rgb(0x3f705e),
-        center: rgb(0x4f866b),
+        base: rgb(0x1d5630),
+        light: rgb(0x2e673b),
+        shade: rgb(0x113322),
+        vein: rgb(0x0d291d),
+        center: rgb(0x143d25),
     },
     LeafPalette {
-        base: rgb(0x568f6f),
-        light: rgb(0x6ca17b),
-        shade: rgb(0x416f5b),
-        vein: rgb(0x386653),
-        center: rgb(0x497d63),
+        base: rgb(0x184629),
+        light: rgb(0x265b33),
+        shade: rgb(0x0d291b),
+        vein: rgb(0x0a2216),
+        center: rgb(0x113420),
     },
 ];
 
