@@ -63,18 +63,18 @@ const CLASSIC_LEAVES: [LeafColors; 2] = [
 ];
 
 const GROVE_LEAVES: [LeafColors; 2] = [
-    leaf(0x1b4f38, 0x2a644a, 0x123c2a, 0x0d2d1f, 0x164232),
-    leaf(0x17452f, 0x245a3f, 0x0f3523, 0x0b291a, 0x123b2a),
+    leaf(0x1b4f38, 0x2a644a, 0x123c2a, 0x2c6a48, 0x164232),
+    leaf(0x17452f, 0x245a3f, 0x0f3523, 0x25603f, 0x123b2a),
 ];
 
 const MAPLE_LEAVES: [LeafColors; 2] = [
-    leaf(0x6e3a14, 0x8a4d1c, 0x4a2509, 0x311707, 0x5e3210),
-    leaf(0x7c4418, 0x995a22, 0x52280b, 0x381a08, 0x6b3a14),
+    leaf(0x4a5a22, 0x66742c, 0x36401a, 0x2a3314, 0x41501e),
+    leaf(0x565021, 0x706a2b, 0x3e3a17, 0x323010, 0x4b461c),
 ];
 
 const LAGOON_LEAVES: [LeafColors; 2] = [
-    leaf(0x8fbf95, 0xadd4ac, 0x6d9c77, 0x527c5d, 0x7fae86),
-    leaf(0x9ac79c, 0xb8dcb6, 0x74a27f, 0x578162, 0x88b891),
+    leaf(0x6faa72, 0x8fc78c, 0x548a5e, 0xcfe8cc, 0x62996a),
+    leaf(0x7ab37a, 0x9bd097, 0x5e9465, 0xd4ecd1, 0x6ca374),
 ];
 
 const CLASSIC_WEED: [WeedColors; 2] = [
@@ -138,17 +138,48 @@ impl Pond {
     pub fn leaf_scale(self) -> f32 {
         match self {
             Pond::Classic => 1.18,
-            Pond::Grove => 1.26,
+            Pond::Grove => 1.34,
             Pond::Maple => 1.12,
-            Pond::Lagoon => 1.62,
+            Pond::Lagoon => 1.7,
         }
+    }
+
+    /// Radial veins per pad, and how far toward the rim they reach.
+    pub fn vein_count(self) -> usize {
+        match self {
+            Pond::Classic => 5,
+            Pond::Grove => 9,
+            Pond::Maple => 5,
+            Pond::Lagoon => 16,
+        }
+    }
+
+    pub fn vein_reach(self) -> f32 {
+        match self {
+            Pond::Classic => 0.68,
+            Pond::Grove => 0.8,
+            Pond::Maple => 0.68,
+            Pond::Lagoon => 0.9,
+        }
+    }
+
+    pub fn has_pad_rim(self) -> bool {
+        matches!(self, Pond::Lagoon)
+    }
+
+    pub fn has_rocks(self) -> bool {
+        !matches!(self, Pond::Classic)
+    }
+
+    pub fn has_maple_leaves(self) -> bool {
+        matches!(self, Pond::Maple)
     }
 
     /// Default (leaves, flowers, duckweed) so each pond has its own density.
     pub fn defaults(self) -> (usize, usize, usize) {
         match self {
             Pond::Classic => (15, 4, 8),
-            Pond::Grove => (30, 9, 10),
+            Pond::Grove => (32, 9, 10),
             Pond::Maple => (16, 0, 12),
             Pond::Lagoon => (10, 3, 4),
         }
@@ -160,8 +191,8 @@ impl Pond {
         match self {
             Pond::Classic => ([1.0; 3], [1.0; 3]),
             Pond::Grove => ([0.9, 1.0, 0.97], [0.82, 1.0, 0.94]),
-            Pond::Maple => ([0.5, 0.32, 0.16], [0.9, 0.5, 0.24]),
-            Pond::Lagoon => ([1.2, 1.1, 1.55], [0.22, 0.42, 2.0]),
+            Pond::Maple => ([0.6, 0.55, 0.4], [0.8, 0.62, 0.4]),
+            Pond::Lagoon => ([1.5, 1.45, 1.3], [0.3, 0.55, 1.5]),
         }
     }
 }

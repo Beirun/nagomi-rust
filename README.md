@@ -4,7 +4,7 @@ A native Rust port of [nagomi](https://github.com/msk1039/nagomi), the procedura
 
 The scene is laid out on the original 480x270 coordinate grid but rendered at the display's native resolution, so shapes come out smooth instead of pixelated. Use `nagomi scale 1-4` to trade quality for GPU/bandwidth: 1 is the original 480x270 pixel-art look, 4 is native 1080p and the default. The setting persists across restarts.
 
-Four pond presets are built in. `classic` is the original pond, `grove` a dense lotus canopy, `maple` an autumn pool with rust leaves and amber water, and `lagoon` a bright blue pool with giant pale pads. `nagomi pond maple` switches between them; each preset brings its own plant density, leaf colors, and water grade, and the choice persists. The presets are original to this port.
+Four pond presets are built in. `classic` is the original pond, `grove` a dense lotus canopy, `maple` an autumn pool with fallen leaves drifting over olive pads, and `lagoon` a bright turquoise pool with giant ringed pads. `nagomi pond maple` switches between them; each preset brings its own plant density, leaf colors, water grade, shoreline rocks, and floating leaves where they fit. The choice persists. The presets are original to this port.
 
 ## Demo
 

@@ -13,7 +13,6 @@ pub const MAX_FLOWERS: usize = 16;
 
 const FLOWER_RADIUS_SCALE: f32 = 2.38;
 const LEAF_SEGMENTS: usize = 24;
-const VEIN_COUNT: usize = 5;
 const NOTCH_HALF_ANGLE: f32 = 0.3;
 const VERTICAL_SCALE: f32 = 0.92;
 const DRIFT_X: f32 = 0.7;
@@ -259,6 +258,9 @@ impl Lotus {
     fn rebuild(&mut self) {
         let palettes = self.pond.leaves();
         let scale = self.pond.leaf_scale();
+        let veins = self.pond.vein_count();
+        let vein_reach = self.pond.vein_reach();
+        let rim = self.pond.has_pad_rim();
 
         let mut leaves = Vec::new();
         for placement in self.placements.iter() {
@@ -297,11 +299,21 @@ impl Lotus {
             }
 
             let mut vein_lines = Vec::new();
-            for index in 1..=VEIN_COUNT {
-                let vein_angle = start + index as f32 / (VEIN_COUNT + 1) as f32 * span;
-                let end = edge_point(radius * 0.68, vein_angle, placement.phase);
+            for index in 1..=veins {
+                let vein_angle = start + index as f32 / (veins + 1) as f32 * span;
+                let end = edge_point(radius * vein_reach, vein_angle, placement.phase);
                 vein_lines.push(Vertex { position: [0.0, 0.0], color: palette.vein });
                 vein_lines.push(Vertex { position: [end.x, end.y], color: palette.vein });
+            }
+            if rim {
+                for index in 0..32 {
+                    let a = start + index as f32 / 32.0 * span;
+                    let b = start + (index + 1) as f32 / 32.0 * span;
+                    let pa = edge_point(radius * 0.94, a, placement.phase);
+                    let pb = edge_point(radius * 0.94, b, placement.phase);
+                    vein_lines.push(Vertex { position: [pa.x, pa.y], color: palette.light });
+                    vein_lines.push(Vertex { position: [pb.x, pb.y], color: palette.light });
+                }
             }
 
             leaves.push(LocalLeaf {

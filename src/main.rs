@@ -1,6 +1,7 @@
 mod butterflies;
 mod commands;
 mod control;
+mod decor;
 mod duckweed;
 mod fish;
 mod gpu;

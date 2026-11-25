@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use crate::butterflies;
+use crate::decor;
 use crate::duckweed;
 use crate::fish::{self, KoiDraw};
 use crate::gpu;
@@ -22,6 +23,7 @@ pub struct Scene {
     pub lotus_frame: lotus::LotusFrame,
     pub duckweed: duckweed::Duckweed,
     pub duckweed_frame: duckweed::DuckweedFrame,
+    pub decor: decor::Decor,
     pub tiny_frame: tiny::TinyFrame,
     pub butterflies: butterflies::Butterflies,
     pub butterfly_frame: butterflies::ButterflyFrame,
@@ -42,6 +44,7 @@ impl Scene {
             lotus_frame: lotus::LotusFrame::new(),
             duckweed: duckweed::Duckweed::new(),
             duckweed_frame: duckweed::DuckweedFrame::new(),
+            decor: decor::Decor::new(),
             tiny_frame: tiny::TinyFrame::new(),
             butterflies: butterflies::Butterflies::new(),
             butterfly_frame: butterflies::ButterflyFrame::new(),
@@ -115,6 +118,12 @@ impl Scene {
         self.lotus
             .update(time, &mut self.lotus_frame);
         self.duckweed.update(time, &mut self.duckweed_frame);
+        self.decor.update(
+            self.pond,
+            time,
+            &mut self.lotus_frame,
+            &mut self.duckweed_frame,
+        );
         tiny::draw(&self.school.tiny, &mut self.tiny_frame);
         self.butterflies.draw(time, &mut self.butterfly_frame);
     }
