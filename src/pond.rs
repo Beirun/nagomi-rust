@@ -73,8 +73,8 @@ const MAPLE_LEAVES: [LeafColors; 2] = [
 ];
 
 const LAGOON_LEAVES: [LeafColors; 2] = [
-    leaf(0x6faa72, 0x8fc78c, 0x548a5e, 0xcfe8cc, 0x62996a),
-    leaf(0x7ab37a, 0x9bd097, 0x5e9465, 0xd4ecd1, 0x6ca374),
+    leaf(0x55975f, 0x74b276, 0x447a4d, 0xdcf0d6, 0x4f8c58),
+    leaf(0x5da267, 0x7cbb7e, 0x4a8252, 0xe2f4dc, 0x569660),
 ];
 
 const CLASSIC_WEED: [WeedColors; 2] = [
@@ -138,7 +138,7 @@ impl Pond {
     pub fn leaf_scale(self) -> f32 {
         match self {
             Pond::Classic => 1.18,
-            Pond::Grove => 1.34,
+            Pond::Grove => 1.05,
             Pond::Maple => 1.12,
             Pond::Lagoon => 1.7,
         }
@@ -148,16 +148,16 @@ impl Pond {
     pub fn vein_count(self) -> usize {
         match self {
             Pond::Classic => 5,
-            Pond::Grove => 9,
+            Pond::Grove => 12,
             Pond::Maple => 5,
-            Pond::Lagoon => 16,
+            Pond::Lagoon => 20,
         }
     }
 
     pub fn vein_reach(self) -> f32 {
         match self {
             Pond::Classic => 0.68,
-            Pond::Grove => 0.8,
+            Pond::Grove => 0.86,
             Pond::Maple => 0.68,
             Pond::Lagoon => 0.9,
         }
@@ -180,7 +180,7 @@ impl Pond {
         match self {
             Pond::Classic => (15, 4, 8),
             Pond::Grove => (32, 9, 10),
-            Pond::Maple => (16, 0, 12),
+            Pond::Maple => (12, 0, 12),
             Pond::Lagoon => (10, 3, 4),
         }
     }
@@ -190,9 +190,9 @@ impl Pond {
     pub fn grade(self) -> ([f32; 3], [f32; 3]) {
         match self {
             Pond::Classic => ([1.0; 3], [1.0; 3]),
-            Pond::Grove => ([0.9, 1.0, 0.97], [0.82, 1.0, 0.94]),
-            Pond::Maple => ([0.6, 0.55, 0.4], [0.8, 0.62, 0.4]),
-            Pond::Lagoon => ([1.5, 1.45, 1.3], [0.3, 0.55, 1.5]),
+            Pond::Grove => ([0.82, 0.95, 0.9], [0.72, 0.93, 0.86]),
+            Pond::Maple => ([0.32, 0.42, 0.33], [0.45, 0.62, 0.48]),
+            Pond::Lagoon => ([1.15, 1.5, 1.65], [0.28, 0.55, 1.65]),
         }
     }
 }
