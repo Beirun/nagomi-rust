@@ -5,6 +5,7 @@ mod duckweed;
 mod fish;
 mod gpu;
 mod lotus;
+mod pond;
 mod scene;
 mod sim;
 mod state;

@@ -4,6 +4,8 @@ A native Rust port of [nagomi](https://github.com/msk1039/nagomi), the procedura
 
 The scene is laid out on the original 480x270 coordinate grid but rendered at the display's native resolution, so shapes come out smooth instead of pixelated. Use `nagomi scale 1-4` to trade quality for GPU/bandwidth: 1 is the original 480x270 pixel-art look, 4 is native 1080p and the default. The setting persists across restarts.
 
+Four pond presets are built in. `classic` is the original pond, `grove` a dense lotus canopy, `maple` an autumn pool with rust leaves and amber water, and `lagoon` a bright blue pool with giant pale pads. `nagomi pond maple` switches between them; each preset brings its own plant density, leaf colors, and water grade, and the choice persists. The presets are original to this port.
+
 ## Demo
 
 [![Animated preview of the koi pond](docs/demo.webp)](docs/demo.mp4)
@@ -124,6 +126,7 @@ nagomi fish            # show the koi count
 nagomi fish 20         # set it, 1 to 48
 nagomi weather         # current ambience and the available names
 nagomi weather rain    # sunny, deep-clear, overcast, mist, dawn, sunset, dusk, moonlight, rain
+nagomi pond maple      # classic, grove, maple, lagoon
 nagomi cycle on        # follow the clock through dawn, day, golden hour, dusk and night
 nagomi scale 4         # render resolution, 1 (480x270) to 4 (native)
 nagomi leaves 12       # lotus leaves, 0-32
@@ -132,7 +135,7 @@ nagomi duckweed 5      # duckweed patches, 0-16
 nagomi butterflies 2   # butterflies, 0-16
 nagomi autostart on    # start with the session (Windows; Linux uses the systemd unit)
 nagomi scatter         # startle the koi
-nagomi status          # fish, ambience, cycle, scale, scene counts, pid, uptime
+nagomi status          # fish, ambience, pond, cycle, scale, scene counts, pid, uptime
 ```
 
 `nagomi cycle on` moves the ambience with the local clock: dawn from 05:00, day from 07:00, golden hour (the sunset preset) from 16:00, dusk from 18:30, and night (moonlight) from 20:30. Picking an ambience by hand turns the cycle off, and `nagomi cycle off` freezes whatever look is on screen.

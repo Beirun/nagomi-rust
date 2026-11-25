@@ -1,6 +1,7 @@
 //! Port of duckweed.ts + duckweed-geometry.ts. Transforms run on the CPU.
 
 use crate::fish::Vertex;
+use crate::pond::{Pond, WeedColors};
 use crate::sim::{vec2, Vec2, XorShift32};
 
 const TAU: f32 = std::f32::consts::TAU;
@@ -23,14 +24,6 @@ const SHADOW_OFFSET: Vec2 = vec2(1.4, 5.1);
 pub const SHADOW_COLOR: [f32; 3] = [0x12 as f32 / 255.0, 0x3b as f32 / 255.0, 0x2d as f32 / 255.0];
 pub const SHADOW_OPACITY: f32 = 0.24;
 
-const fn rgb(hex: u32) -> [f32; 3] {
-    [
-        ((hex >> 16) & 0xff) as f32 / 255.0,
-        ((hex >> 8) & 0xff) as f32 / 255.0,
-        (hex & 0xff) as f32 / 255.0,
-    ]
-}
-
 struct Palette {
     base: [f32; 3],
     light: [f32; 3],
@@ -38,10 +31,16 @@ struct Palette {
     center: [f32; 3],
 }
 
-const PALETTES: [Palette; 2] = [
-    Palette { base: rgb(0x6fc94f), light: rgb(0x9be66c), shade: rgb(0x45963e), center: rgb(0xc3ee75) },
-    Palette { base: rgb(0x83d35b), light: rgb(0xb1ed76), shade: rgb(0x549e43), center: rgb(0xd0f28a) },
-];
+impl From<WeedColors> for Palette {
+    fn from(colors: WeedColors) -> Self {
+        Self {
+            base: colors.base,
+            light: colors.light,
+            shade: colors.shade,
+            center: colors.center,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Patch {
@@ -93,6 +92,7 @@ impl DuckweedFrame {
 }
 
 pub struct Duckweed {
+    pond: Pond,
     patches: Vec<Patch>,
     leaves: Vec<Vec<LeafShape>>,
     visible_patches: usize,
@@ -100,6 +100,10 @@ pub struct Duckweed {
 
 impl Duckweed {
     pub fn new() -> Self {
+        Self::with_pond(Pond::Classic)
+    }
+
+    pub fn with_pond(pond: Pond) -> Self {
         let mut rng = XorShift32::new(0x0d0c_a11e);
         let mut patches: Vec<Patch> = PATCHES.to_vec();
         while patches.len() < MAX_PATCHES {
@@ -153,10 +157,15 @@ impl Duckweed {
             leaves.push(shapes);
         }
         Self {
+            pond,
             patches,
             leaves,
             visible_patches: VISIBLE_PATCH_COUNT,
         }
+    }
+
+    pub fn set_pond(&mut self, pond: Pond) {
+        self.pond = pond;
     }
 
     pub fn visible_patches(&self) -> usize {
@@ -177,13 +186,15 @@ impl Duckweed {
         frame.leaves.clear();
         frame.highlights.clear();
 
+        let palettes: [Palette; 2] = self.pond.weed().map(Palette::from);
+
         for (patch_index, patch) in self
             .patches
             .iter()
             .enumerate()
             .take(self.visible_patches)
         {
-            let palette = &PALETTES[patch.palette % PALETTES.len()];
+            let palette = &palettes[patch.palette % palettes.len()];
             let center = vec2(
                 patch.position.x + (time * 0.1 + patch.phase).sin() * DRIFT_X,
                 patch.position.y + (time * 0.13 + patch.phase * 1.4).cos() * DRIFT_Y,

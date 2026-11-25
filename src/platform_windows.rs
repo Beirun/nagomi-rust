@@ -102,7 +102,7 @@ impl App {
         let time = self.started.elapsed().as_secs_f32();
         self.scene.build_frame(time);
         let (fish_frame, surface_frame) = self.scene.frames();
-        let weather = *self.scene.weather.current();
+        let weather = self.scene.graded_weather();
         renderer.draw(
             time,
             &ripple_data,

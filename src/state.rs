@@ -2,11 +2,13 @@
 
 use std::path::PathBuf;
 
+use crate::pond::Pond;
 use crate::scene::Scene;
 use crate::sim;
 
 #[derive(Default)]
 pub struct SavedState {
+    pub pond: Option<String>,
     pub fish: Option<usize>,
     pub ambience: Option<String>,
     pub scale: Option<u32>,
@@ -51,6 +53,7 @@ impl SavedState {
             };
             let value = value.trim();
             match key {
+                "pond" => saved.pond = Some(value.to_string()),
                 "fish" => saved.fish = value.parse().ok(),
                 "ambience" => saved.ambience = Some(value.to_string()),
                 "scale" => saved.scale = value.parse().ok(),
@@ -66,6 +69,9 @@ impl SavedState {
     }
 
     pub fn apply(&self, scene: &mut Scene) {
+        if let Some(name) = &self.pond {
+            scene.set_pond(Pond::from_name(name).unwrap_or_default());
+        }
         if let Some(name) = &self.ambience {
             let _ = scene.weather.set(name);
         }
@@ -91,7 +97,8 @@ impl SavedState {
 
     pub fn save(scene: &Scene, scale: u32) {
         let contents = format!(
-            "fish={}\nambience={}\nscale={}\nleaves={}\nflowers={}\nduckweed={}\nbutterflies={}\ncycle={}\n",
+            "pond={}\nfish={}\nambience={}\nscale={}\nleaves={}\nflowers={}\nduckweed={}\nbutterflies={}\ncycle={}\n",
+            scene.pond.name(),
             scene.school.count,
             scene.weather.name(),
             scale,

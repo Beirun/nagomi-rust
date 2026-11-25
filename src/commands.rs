@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use crate::control;
 use crate::gpu;
+use crate::pond::{self, Pond};
 use crate::scene::Scene;
 use crate::sim;
 use crate::state::SavedState;
@@ -44,6 +45,23 @@ pub fn handle(
                     format!("ambience {name}\n")
                 }
                 Err(error) => format!("nagomi: {error}\n"),
+            },
+        },
+        "pond" => match words.next() {
+            None => format!(
+                "pond {}\navailable: {}\n",
+                scene.pond.name(),
+                pond::POND_NAMES.join(", ")
+            ),
+            Some(name) => match Pond::from_name(name) {
+                Some(pond) => {
+                    scene.set_pond(pond);
+                    format!("pond {}\n", pond.name())
+                }
+                None => format!(
+                    "nagomi: unknown pond '{name}'; try {}\n",
+                    pond::POND_NAMES.join(", ")
+                ),
             },
         },
         "scale" => match words.next() {
@@ -126,9 +144,10 @@ pub fn handle(
             "ok\n".to_string()
         }
         "status" => format!(
-            "fish {}\nambience {}\ncycle {}\nscale {}\nleaves {} flowers {} duckweed {} butterflies {}\npid {}\nuptime {:.0}s\n",
+            "fish {}\nambience {}\npond {}\ncycle {}\nscale {}\nleaves {} flowers {} duckweed {} butterflies {}\npid {}\nuptime {:.0}s\n",
             scene.school.count,
             scene.weather.name(),
+            scene.pond.name(),
             if scene.weather.cycle_enabled() { "on" } else { "off" },
             renderer.scale(),
             scene.lotus.visible_leaves(),

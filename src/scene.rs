@@ -7,9 +7,10 @@ use crate::duckweed;
 use crate::fish::{self, KoiDraw};
 use crate::gpu;
 use crate::lotus;
+use crate::pond::{self, Pond};
 use crate::sim::{FishConfig, School, FIXED_STEP};
 use crate::tiny;
-use crate::weather::Weather;
+use crate::weather::{Weather, WeatherParams};
 
 pub const FRAME_INTERVAL: Duration = Duration::from_millis(33);
 pub const SIMULATED: f32 = FIXED_STEP;
@@ -25,6 +26,7 @@ pub struct Scene {
     pub butterflies: butterflies::Butterflies,
     pub butterfly_frame: butterflies::ButterflyFrame,
     pub weather: Weather,
+    pub pond: Pond,
     pub config: FishConfig,
     accumulator: f32,
     sim_time: f32,
@@ -44,6 +46,7 @@ impl Scene {
             butterflies: butterflies::Butterflies::new(),
             butterfly_frame: butterflies::ButterflyFrame::new(),
             weather: Weather::new(),
+            pond: Pond::Classic,
             config,
             accumulator: 0.0,
             sim_time: 0.0,
@@ -90,6 +93,21 @@ impl Scene {
 
     pub fn time(&self) -> f32 {
         self.sim_time
+    }
+
+    /// Switch pond presets, applying that pond's plant layout and density.
+    pub fn set_pond(&mut self, pond: Pond) {
+        self.pond = pond;
+        self.lotus.set_pond(pond);
+        self.duckweed.set_pond(pond);
+        let (leaves, flowers, duckweed) = pond.defaults();
+        self.lotus.set_visible_leaves(leaves);
+        self.lotus.set_visible_flowers(flowers);
+        self.duckweed.set_visible_patches(duckweed);
+    }
+
+    pub fn graded_weather(&self) -> WeatherParams {
+        pond::graded(self.weather.current(), self.pond)
     }
 
     pub fn build_frame(&mut self, time: f32) {

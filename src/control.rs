@@ -9,6 +9,8 @@ usage: nagomi <command> [args]
   weather            show the current ambience and the available names
   weather <name>     switch ambience: {}
   ambience <name>    alias for weather
+  pond               show the current pond and the available names
+  pond <name>        switch pond: {}
   cycle [on|off]     follow the clock: dawn, day, golden hour, dusk, night
   scale [1-4]        show or set render resolution; 1 = 480x270 pixel art, 4 = native
   leaves [0-32]      show or set the number of lotus leaves
@@ -23,7 +25,8 @@ usage: nagomi <command> [args]
 Run with no command to start the wallpaper (normally it starts with the session).
 Fish count and ambience are remembered across restarts.
 ",
-        crate::weather::PRESET_NAMES.join(", ")
+        crate::weather::PRESET_NAMES.join(", "),
+        crate::pond::POND_NAMES.join(", ")
     )
 }
 

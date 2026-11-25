@@ -329,6 +329,11 @@ pub fn run() -> Result<()> {
             scene.weather.snap();
         }
     }
+    if let Ok(name) = std::env::var("NAGOMI_POND") {
+        if let Some(pond) = crate::pond::Pond::from_name(&name) {
+            scene.set_pond(pond);
+        }
+    }
 
     let mut app = App {
         renderer,
@@ -389,7 +394,7 @@ pub fn run() -> Result<()> {
                         app.scene.build_frame(time);
                         let (ripple_data, ripple_count) = app.scene.ripple_uniforms();
                         let (fish_frame, surface_frame) = app.scene.frames();
-                        let weather = *app.scene.weather.current();
+                        let weather = app.scene.graded_weather();
                         let path = format!("{dir}/frame{frame:05}.ppm");
                         app.renderer.dump_pond(
                             &path,
@@ -407,7 +412,7 @@ pub fn run() -> Result<()> {
                 let time = app.started.elapsed().as_secs_f32();
                 app.scene.build_frame(time);
                 let (fish_frame, surface_frame) = app.scene.frames();
-                let weather = *app.scene.weather.current();
+                let weather = app.scene.graded_weather();
                 app.renderer.dump_pond(
                     &path,
                     time,

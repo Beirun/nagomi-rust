@@ -1,6 +1,7 @@
 //! Port of lotus-leaves.ts: static leaf/flower geometry with per-frame transforms.
 
 use crate::fish::Vertex;
+use crate::pond::{LeafColors, Pond};
 use crate::sim::{vec2, Vec2, XorShift32};
 
 const TAU: f32 = std::f32::consts::TAU;
@@ -10,7 +11,6 @@ pub const VISIBLE_FLOWER_COUNT: usize = 4;
 pub const MAX_LEAVES: usize = 32;
 pub const MAX_FLOWERS: usize = 16;
 
-const RADIUS_SCALE: f32 = 1.18;
 const FLOWER_RADIUS_SCALE: f32 = 2.38;
 const LEAF_SEGMENTS: usize = 24;
 const VEIN_COUNT: usize = 5;
@@ -32,34 +32,10 @@ const fn rgb(hex: u32) -> [f32; 3] {
     ]
 }
 
-struct LeafPalette {
-    base: [f32; 3],
-    light: [f32; 3],
-    shade: [f32; 3],
-    vein: [f32; 3],
-    center: [f32; 3],
-}
-
 // Upstream paints the lotus meshes through three.js color management, which
-// feeds the palette's sRGB values to the shader as linear ones. Reproducing
-// that means linearizing here: these are the sRGB->linear conversions of the
-// upstream hexes (0x5f9d78 etc.), which is why the leaves read darker.
-const LEAF_PALETTES: [LeafPalette; 2] = [
-    LeafPalette {
-        base: rgb(0x1d5630),
-        light: rgb(0x2e673b),
-        shade: rgb(0x113322),
-        vein: rgb(0x0d291d),
-        center: rgb(0x143d25),
-    },
-    LeafPalette {
-        base: rgb(0x184629),
-        light: rgb(0x265b33),
-        shade: rgb(0x0d291b),
-        vein: rgb(0x0a2216),
-        center: rgb(0x113420),
-    },
-];
+// feeds the palette's sRGB values to the shader as linear ones. The classic
+// palette in pond.rs carries those linearized values, which is why its leaves
+// read darker than the upstream hexes.
 
 struct FlowerPalette {
     outer_petal: [f32; 3],
@@ -187,7 +163,7 @@ fn edge_point(radius: f32, angle: f32, phase: f32) -> Vec2 {
     )
 }
 
-fn leaf_color(palette: &LeafPalette, angle: f32, phase: f32) -> [f32; 3] {
+fn leaf_color(palette: &LeafColors, angle: f32, phase: f32) -> [f32; 3] {
     let directional = 0.5 + (angle + 2.2).cos() * 0.42;
     let organic = (angle * 3.0 + phase * 0.7).sin() * 0.045;
     let tone = (directional + organic).max(0.0).min(1.0);
@@ -236,6 +212,7 @@ impl LotusFrame {
 }
 
 pub struct Lotus {
+    pond: Pond,
     placements: Vec<LeafPlacement>,
     flower_placements: Vec<FlowerPlacement>,
     leaves: Vec<LocalLeaf>,
@@ -246,6 +223,10 @@ pub struct Lotus {
 
 impl Lotus {
     pub fn new() -> Self {
+        Self::with_pond(Pond::Classic)
+    }
+
+    pub fn with_pond(pond: Pond) -> Self {
         let mut rng = XorShift32::new(0x1eaf_5eed);
         let mut placements: Vec<LeafPlacement> = LEAF_PLACEMENTS.to_vec();
         while placements.len() < MAX_LEAVES {
@@ -255,11 +236,34 @@ impl Lotus {
         while flower_placements.len() < MAX_FLOWERS {
             flower_placements.push(generated_flower(&mut rng));
         }
+        let mut lotus = Self {
+            pond,
+            placements,
+            flower_placements,
+            leaves: Vec::new(),
+            flowers: Vec::new(),
+            visible_leaves: VISIBLE_LEAF_COUNT,
+            visible_flowers: VISIBLE_FLOWER_COUNT,
+        };
+        lotus.rebuild();
+        lotus
+    }
+
+    pub fn set_pond(&mut self, pond: Pond) {
+        if self.pond != pond {
+            self.pond = pond;
+            self.rebuild();
+        }
+    }
+
+    fn rebuild(&mut self) {
+        let palettes = self.pond.leaves();
+        let scale = self.pond.leaf_scale();
 
         let mut leaves = Vec::new();
-        for placement in placements.iter() {
-            let palette = &LEAF_PALETTES[placement.palette % LEAF_PALETTES.len()];
-            let radius = placement.radius * RADIUS_SCALE;
+        for placement in self.placements.iter() {
+            let palette = &palettes[placement.palette % palettes.len()];
+            let radius = placement.radius * scale;
             let start = placement.angle + NOTCH_HALF_ANGLE;
             let span = TAU - NOTCH_HALF_ANGLE * 2.0;
 
@@ -310,7 +314,7 @@ impl Lotus {
         }
 
         let mut flowers = Vec::new();
-        for placement in flower_placements.iter() {
+        for placement in self.flower_placements.iter() {
             let palette = &FLOWER_PALETTES[placement.palette % FLOWER_PALETTES.len()];
             let radius = placement.radius * FLOWER_RADIUS_SCALE;
             let mut triangles = Vec::new();
@@ -370,14 +374,10 @@ impl Lotus {
             flowers.push(LocalFlower { triangles });
         }
 
-        Self {
-            placements,
-            flower_placements,
-            leaves,
-            flowers,
-            visible_leaves: VISIBLE_LEAF_COUNT,
-            visible_flowers: VISIBLE_FLOWER_COUNT,
-        }
+        self.leaves = leaves;
+        self.flowers = flowers;
+        self.visible_leaves = self.visible_leaves.min(self.leaves.len());
+        self.visible_flowers = self.visible_flowers.min(self.flowers.len());
     }
 
     pub fn visible_leaves(&self) -> usize {
